@@ -30,7 +30,16 @@ const manifest = {
   version: packageJson.version,
   description: '__MSG_extensionDescription__',
   host_permissions: ['<all_urls>'],
-  permissions: ['storage', 'scripting', 'tabs', 'notifications', 'sidePanel'],
+  permissions: [
+    'storage',
+    'scripting',
+    'tabs',
+    'notifications',
+    'sidePanel',
+    'activeTab',
+    'clipboardWrite',
+    'clipboardRead',
+  ],
   options_page: 'options/index.html',
   background: {
     service_worker: 'background.js',
@@ -69,6 +78,23 @@ const manifest = {
   ],
   side_panel: {
     default_path: 'side-panel/index.html',
+  },
+  // Command shortcuts
+  commands: {
+    _execute_action: {
+      suggested_key: {
+        default: 'Ctrl+Shift+Y',
+        mac: 'Command+Shift+Y',
+      },
+      description: 'Open popup',
+    },
+    'send-image-to-ai': {
+      suggested_key: {
+        default: 'Alt+Z',
+        mac: 'Alt+Z',
+      },
+      description: 'Send highlighted image to AI',
+    },
   },
 } satisfies chrome.runtime.ManifestV3;
 
