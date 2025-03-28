@@ -46,75 +46,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  // Handle direct clipboard write request
-  if (message.action === 'writeImageToClipboard') {
-    try {
-      // Convert data URL to blob for clipboard operations
-      const imageDataUrl = message.imageDataUrl;
-      const blob = dataURLtoBlob(imageDataUrl);
-
-      // Check if Clipboard API is available in background context
-      if (navigator.clipboard && 'write' in navigator.clipboard) {
-        // First check if we have permission to use the clipboard
-        navigator.permissions
-          .query({ name: 'clipboard-write' as PermissionName })
-          .then(permissionStatus => {
-            console.log('Clipboard permission status:', permissionStatus.state);
-
-            // Even with permission, the clipboard API requires user gesture/focus
-            // We'll attempt the write but also return the blob data for fallback methods
-            navigator.clipboard
-              .write([
-                new ClipboardItem({
-                  [blob.type]: blob,
-                }),
-              ])
-              .then(() => {
-                console.log('Background script: Image successfully copied to clipboard');
-                sendResponse({
-                  success: true,
-                  // Also send back the blob data for potential fallback methods
-                  blobType: blob.type,
-                  blobData: imageDataUrl,
-                });
-              })
-              .catch(error => {
-                console.error('Background script: Failed to write to clipboard:', error);
-                // Return data for fallback methods even on error
-                sendResponse({
-                  success: false,
-                  error: String(error),
-                  // Return the blob data so content script can try alternative methods
-                  blobType: blob.type,
-                  blobData: imageDataUrl,
-                });
-              });
-          })
-          .catch(error => {
-            console.error('Permission query failed:', error);
-            sendResponse({
-              success: false,
-              error: 'Permission query failed',
-              blobType: blob.type,
-              blobData: imageDataUrl,
-            });
-          });
-      } else {
-        // Fallback for older browsers
-        sendResponse({
-          success: false,
-          error: 'Clipboard API not available in background context',
-          blobType: blob.type,
-          blobData: imageDataUrl,
-        });
-      }
-    } catch (error) {
-      console.error('Error in writeImageToClipboard handler:', error);
-      sendResponse({ success: false, error: String(error) });
-    }
-
-    return true; // Keep message channel open for async response
-  }
+  // Removed the writeImageToClipboard handler - copying now happens solely in the content script
 
   // Handle image fetching (for bypassing CORS)
   if (message.action === 'fetchImage') {

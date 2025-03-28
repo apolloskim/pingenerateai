@@ -1,4 +1,5 @@
 import { sampleFunction } from '@src/sampleFunction';
+import { checkIfChatGPTAndSetupHelper, showToast, pasteIntoChatGPT } from './chatgpt-helper';
 
 console.log('content script loaded');
 
@@ -239,411 +240,1373 @@ function registerContentScriptReady() {
 
 // Handle messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'copyToClipboard') {
-    const imageUrl = message.imageUrl;
-    if (imageUrl) {
-      copyImageToClipboard(imageUrl)
-        .then(success => {
-          sendResponse({ success });
-        })
-        .catch(error => {
-          console.error('Error copying to clipboard:', error);
-          sendResponse({ success: false, error: String(error) });
-        });
-      return true; // Keep connection open for async response
-    }
-  }
-
-  // Handle keyboard shortcut triggered from background script
+  // Handle keyboard shortcut triggered from background script (ensure it calls the same logic as direct keydown)
   if (message.action === 'processImageShortcut') {
-    // Simulate Alt+Z by calling the same function as the keyboard shortcut
+    // Simulate the Alt+Z keydown event logic
     const highlightedElement = window.__highlightedElement;
     if (!highlightedElement) {
-      showToast('No image selected', 'error');
+      showToast('No image selected. Hover over an image.', 'error');
       return false;
     }
 
     const imageUrl = getImageFromElement(highlightedElement);
     if (!imageUrl) {
-      showToast('Failed to extract image', 'error');
+      showToast('Failed to extract image source.', 'error');
       return false;
     }
 
+    // --- Focus Helper ---
     // Store active element to restore focus later
     const activeElement = document.activeElement;
-
-    // Create a hidden input to help maintain focus during clipboard operations
     const focusHelper = document.createElement('input');
     focusHelper.style.position = 'fixed';
     focusHelper.style.opacity = '0';
     focusHelper.style.pointerEvents = 'none';
     focusHelper.style.left = '-9999px';
     document.body.appendChild(focusHelper);
+    focusHelper.focus(); // Attempt to ensure document focus
+    // --- End Focus Helper ---
 
-    // Focus our helper to ensure document has focus
-    focusHelper.focus();
+    showToast('Processing image...', 'info', 1000); // Shorter duration
 
-    // Process the image
-    showToast('Copying image...', 'info');
-    urlToDataURL(imageUrl)
-      .then(dataUrl => {
-        // Record document focus state before clipboard operation
-        console.log('Document has focus before clipboard operation:', document.hasFocus());
-        return copyImageToClipboard(dataUrl);
-      })
-      .then(result => {
-        // Clean up focus helper
-        document.body.removeChild(focusHelper);
+    (async () => {
+      try {
+        const dataUrl = await urlToDataURL(imageUrl);
+        console.log('Document has focus before copy attempt:', document.hasFocus()); // Log focus state
+        const copySuccess = await copyImageToClipboard(dataUrl);
 
-        // Restore original focus if possible
-        if (activeElement instanceof HTMLElement) {
-          try {
-            activeElement.focus();
-          } catch (focusError) {
-            console.log('Could not restore focus:', focusError);
+        if (copySuccess) {
+          showToast('Image copied!', 'success');
+          await addImageToQueue(dataUrl, imageUrl); // Add to queue on success
+
+          // Check if on ChatGPT and attempt paste
+          const hostname = window.location.hostname;
+          if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) {
+            console.log('Detected ChatGPT site, attempting paste...');
+            // Use a minimal delay, relying on user focus potentially being maintained
+            setTimeout(() => pasteIntoChatGPT(), 100);
           }
         }
-
-        if (result) {
-          showToast('Image copied to clipboard!', 'success');
-        } else {
-          showToast('Failed to copy image', 'error');
-        }
-      })
-      .catch(error => {
-        // Clean up focus helper on error
+        // No "else" here, copyImageToClipboard shows its own error toast
+      } catch (error) {
+        console.error('Error processing image shortcut:', error);
+        showToast('Error processing image', 'error');
+      } finally {
+        // --- Restore Focus ---
         if (document.body.contains(focusHelper)) {
           document.body.removeChild(focusHelper);
         }
+        // Try to restore original focus
+        if (activeElement instanceof HTMLElement) {
+          try {
+            // Small delay before restoring focus, might help in some cases
+            setTimeout(() => activeElement.focus({ preventScroll: true }), 50);
+          } catch (focusError) {
+            console.warn('Could not restore focus:', focusError);
+          }
+        }
+        // --- End Restore Focus ---
+      }
+    })();
 
-        console.error('Error processing image:', error);
-        showToast('Error processing image', 'error');
-      });
-
-    return false;
+    return false; // Indicate sync handling
   }
 
-  return false;
+  return false; // Default for other messages
 });
 
-// Set up keyboard shortcut handler for copying images
-function setupKeyboardShortcut() {
-  document.addEventListener('keydown', async event => {
-    // Check for Alt+Z (Option+Z on Mac)
-    if (event.altKey && event.key === 'z') {
-      console.log('Keyboard shortcut Alt+Z detected!');
-      event.preventDefault(); // Prevent any default browser actions
-
-      // Get currently highlighted element
-      const highlightedElement = window.__highlightedElement;
-      if (!highlightedElement) {
-        console.log('No image is currently highlighted - hover over an image first');
-        showToast('No image selected', 'error');
-        return;
-      }
-
-      // Get image from element
-      const imageUrl = getImageFromElement(highlightedElement);
-      if (!imageUrl) {
-        console.log('Could not extract image from highlighted element');
-        showToast('Failed to extract image', 'error');
-        return;
-      }
-
-      // Show copying toast (immediate feedback)
-      showToast('Copying image...', 'info');
-
-      try {
-        // Convert URL to DataURL (using our existing function)
-        const dataUrl = await urlToDataURL(imageUrl);
-
-        // Use the Clipboard API to copy the image
-        const success = await copyImageToClipboard(dataUrl);
-
-        // Show success/failure message
-        if (success) {
-          showToast('Image copied to clipboard!', 'success');
-        } else {
-          showToast('Failed to copy image', 'error');
-        }
-      } catch (error) {
-        console.error('Error processing image:', error);
-        showToast('Error processing image', 'error');
-      }
-    }
-  });
+// Add type definitions for our image queue
+interface QueuedImage {
+  id: string;
+  dataUrl: string;
+  sourceUrl: string;
+  timestamp: number;
+  thumbnailUrl?: string;
+  prompt?: string; // Associated prompt
 }
 
-// Simple toast notification
-function showToast(message: string, type: 'success' | 'error' | 'info') {
-  const toast = document.createElement('div');
-  toast.style.position = 'fixed';
-  toast.style.bottom = '20px';
-  toast.style.left = '50%';
-  toast.style.transform = 'translateX(-50%)';
-  toast.style.padding = '8px 16px';
-  toast.style.borderRadius = '4px';
-  toast.style.fontSize = '14px';
-  toast.style.fontFamily = 'system-ui, sans-serif';
-  toast.style.zIndex = '10000';
-  toast.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
-  toast.style.minWidth = '200px';
-  toast.style.textAlign = 'center';
+// Add type for prompts
+interface QueuedPrompt {
+  id: string;
+  text: string;
+  timestamp: number;
+  source?: string; // Where the prompt came from
+}
 
-  if (type === 'success') {
-    toast.style.backgroundColor = '#4caf50';
-    toast.style.color = 'white';
-  } else if (type === 'error') {
-    toast.style.backgroundColor = '#f44336';
-    toast.style.color = 'white';
+// Constants
+const MAX_QUEUE_SIZE = 20; // Store up to 20 recent images
+const QUEUE_STORAGE_KEY = 'pingenerateai_image_queue';
+const PROMPT_STORAGE_KEY = 'pingenerateai_prompt_queue';
+
+// UI-related variables
+let queuePanelVisible = false;
+let queuePanel: HTMLElement | null = null;
+let selectedImageId: string | null = null;
+let selectedPromptId: string | null = null;
+
+// Add this function to create the queue visualization panel
+function createQueuePanel(): HTMLElement {
+  // Only create if it doesn't already exist
+  if (document.getElementById('pingenerateai-panel-container')) {
+    return document.getElementById('pingenerateai-panel-container') as HTMLElement;
+  }
+
+  // Create panel container with shadow DOM
+  const panelContainer = document.createElement('div');
+  panelContainer.id = 'pingenerateai-panel-container';
+  document.body.appendChild(panelContainer);
+
+  // Create shadow root
+  const shadow = panelContainer.attachShadow({ mode: 'open' });
+
+  // Create panel element
+  const panel = document.createElement('div');
+  panel.className = 'panel-root';
+  panel.style.display = queuePanelVisible ? 'flex' : 'none';
+  shadow.appendChild(panel);
+
+  // Define the style
+  const style = document.createElement('style');
+  style.textContent = `
+    .panel-root {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background-color: rgba(0, 0, 0, 0.85);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      color: white;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      z-index: 999999;
+      max-width: 700px;
+      width: 700px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .panel-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+    }
+    
+    .panel-close {
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      font-size: 18px;
+      padding: 0 4px;
+    }
+    
+    .panel-close:hover {
+      color: white;
+    }
+    
+    .panel-content {
+      display: flex;
+      flex: 1;
+      min-height: 400px;
+      max-height: 80vh;
+    }
+    
+    .panel-section {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      position: relative;
+    }
+    
+    .panel-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 16px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .panel-section.images {
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .panel-footer {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: flex-end;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .action-btn {
+      background-color: #3B82F6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    
+    .action-btn:hover {
+      background-color: #2563EB;
+    }
+    
+    .action-btn:disabled {
+      background-color: rgba(59, 130, 246, 0.5);
+      cursor: not-allowed;
+    }
+    
+    .secondary-btn {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    
+    .secondary-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Image thumbnails styling */
+    .thumbnail-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 8px;
+    }
+    
+    .thumbnail {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      aspect-ratio: 16/9;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      border: 2px solid transparent;
+    }
+    
+    .thumbnail:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .thumbnail.selected {
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+    }
+    
+    .thumbnail img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .thumbnail .delete-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 1;
+    }
+    
+    .thumbnail:hover .delete-btn {
+      opacity: 1;
+    }
+    
+    /* Prompt items styling */
+    .prompt-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .prompt-item {
+      position: relative;
+      border-radius: 8px;
+      padding: 12px;
+      background-color: rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      border: 2px solid transparent;
+    }
+    
+    .prompt-item:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .prompt-item.selected {
+      border-color: #3B82F6;
+      background-color: rgba(59, 130, 246, 0.1);
+    }
+    
+    .prompt-text {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    
+    .prompt-meta {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    
+    .prompt-item .delete-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    
+    .prompt-item:hover .delete-btn {
+      opacity: 1;
+    }
+    
+    .empty-message {
+      padding: 24px 0;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.5);
+      font-style: italic;
+    }
+    
+    /* Prompt input styling */
+    .prompt-input-container {
+      margin-bottom: 16px;
+    }
+    
+    .save-btn {
+      background-color: #10B981;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    
+    .save-btn:hover {
+      background-color: #059669;
+    }
+
+    .selection-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background-color: #4CAF50;
+      border-radius: 50%;
+      margin-left: 5px;
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(255, 255, 255, 0.3);
+    }
+  `;
+  shadow.appendChild(style);
+
+  // Create panel header
+  const header = document.createElement('div');
+  header.className = 'panel-header';
+
+  const title = document.createElement('h2');
+  title.className = 'panel-title';
+  title.textContent = 'PinGenerate AI';
+  header.appendChild(title);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'panel-close';
+  closeBtn.textContent = '✕';
+  closeBtn.title = 'Close panel';
+  closeBtn.addEventListener('click', toggleQueuePanel);
+  header.appendChild(closeBtn);
+
+  panel.appendChild(header);
+
+  // Create panel content - split into two sections
+  const content = document.createElement('div');
+  content.className = 'panel-content';
+
+  // Images section (left)
+  const imagesSection = document.createElement('div');
+  imagesSection.className = 'panel-section images';
+
+  const imagesTitle = document.createElement('h3');
+  imagesTitle.className = 'panel-section-title';
+  imagesTitle.textContent = 'Images';
+  imagesSection.appendChild(imagesTitle);
+
+  const imagesContent = document.createElement('div');
+  imagesContent.className = 'images-content';
+  imagesSection.appendChild(imagesContent);
+
+  // Prompts section (right)
+  const promptsSection = document.createElement('div');
+  promptsSection.className = 'panel-section prompts';
+
+  const promptsTitle = document.createElement('h3');
+  promptsTitle.className = 'panel-section-title';
+  promptsTitle.textContent = 'Prompts';
+  promptsSection.appendChild(promptsTitle);
+
+  const promptsContent = document.createElement('div');
+  promptsContent.className = 'prompts-content';
+  promptsSection.appendChild(promptsContent);
+
+  // Add sections to content
+  content.appendChild(imagesSection);
+  content.appendChild(promptsSection);
+  panel.appendChild(content);
+
+  // Create the panel footer
+  const footer = document.createElement('div');
+  footer.className = 'panel-footer';
+
+  const pasteBtn = document.createElement('button');
+  pasteBtn.className = 'action-btn';
+  pasteBtn.innerHTML = '<span>Paste</span>';
+  pasteBtn.title = 'Paste selected items';
+  pasteBtn.disabled = true; // Disabled until selection
+  pasteBtn.addEventListener('click', pasteSelectedItem);
+
+  footer.appendChild(pasteBtn);
+  panel.appendChild(footer);
+
+  // Initial content update
+  updateImageContent(imagesContent);
+  updatePromptContent(promptsContent);
+
+  // Listen for selection changes to update button state
+  document.addEventListener('selection-changed', updateFooterButtons);
+
+  // Create a toggle button
+  const toggleBtn = document.createElement('button');
+  toggleBtn.id = 'pingenerateai-toggle-btn';
+  toggleBtn.innerHTML = '🖼️';
+  toggleBtn.title = 'Toggle PinGenerate AI panel';
+  toggleBtn.style.position = 'fixed';
+  toggleBtn.style.bottom = '20px';
+  toggleBtn.style.right = '20px';
+  toggleBtn.style.width = '48px';
+  toggleBtn.style.height = '48px';
+  toggleBtn.style.backgroundColor = '#3B82F6';
+  toggleBtn.style.color = 'white';
+  toggleBtn.style.border = 'none';
+  toggleBtn.style.borderRadius = '50%';
+  toggleBtn.style.fontSize = '20px';
+  toggleBtn.style.display = 'flex';
+  toggleBtn.style.alignItems = 'center';
+  toggleBtn.style.justifyContent = 'center';
+  toggleBtn.style.cursor = 'pointer';
+  toggleBtn.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+  toggleBtn.style.zIndex = '999998';
+  toggleBtn.addEventListener('click', toggleQueuePanel);
+  shadow.appendChild(toggleBtn);
+
+  queuePanel = panel;
+  return queuePanel;
+}
+
+// Update footer buttons based on selection state
+function updateFooterButtons() {
+  if (!queuePanel) return;
+
+  const shadow = queuePanel.getRootNode() as ShadowRoot;
+  const actionBtn = shadow.querySelector('.action-btn') as HTMLButtonElement;
+
+  if (!actionBtn) return;
+
+  // Update the main paste button text based on selections
+  if (selectedImageId && selectedPromptId) {
+    actionBtn.disabled = false;
+    actionBtn.innerHTML = '<span>Paste Image & Prompt</span>';
+  } else if (selectedImageId) {
+    actionBtn.disabled = false;
+    actionBtn.innerHTML = '<span>Paste Image</span>';
+  } else if (selectedPromptId) {
+    actionBtn.disabled = false;
+    actionBtn.innerHTML = '<span>Paste Prompt</span>';
   } else {
-    toast.style.backgroundColor = '#2196f3';
-    toast.style.color = 'white';
+    actionBtn.disabled = true;
+    actionBtn.innerHTML = '<span>Paste</span>';
   }
 
-  toast.textContent = message;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.5s';
-    setTimeout(() => {
-      if (document.body.contains(toast)) {
-        document.body.removeChild(toast);
-      }
-    }, 500);
-  }, 2000);
+  // Update button visibility in footer
+  console.log(`Current selections - Image: ${selectedImageId}, Prompt: ${selectedPromptId}`);
 }
 
-// Convert a URL to a data URL
-async function urlToDataURL(url: string): Promise<string> {
-  // If it's already a data URL, return it directly
-  if (url.startsWith('data:')) {
-    return url;
-  }
+// Toggle the panel visibility
+function toggleQueuePanel() {
+  if (!queuePanel) return;
 
-  // For same-origin images or images that support CORS
-  try {
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) {
-      throw new Error(`Fetch failed with status: ${response.status}`);
+  queuePanelVisible = !queuePanelVisible;
+  queuePanel.style.display = queuePanelVisible ? 'flex' : 'none';
+
+  // Refresh content when showing
+  if (queuePanelVisible) {
+    const shadow = queuePanel.getRootNode() as ShadowRoot;
+
+    // Log the current selection state on panel open
+    console.log('Panel opened, current selections - Image:', selectedImageId, 'Prompt:', selectedPromptId);
+
+    // Find the content sections
+    const imagesContent = shadow.querySelector('.images-content');
+    const promptsContent = shadow.querySelector('.prompts-content');
+
+    // Update both sections
+    if (imagesContent) {
+      updateImageContent(imagesContent as HTMLElement);
     }
-    const blob = await response.blob();
-    return await blobToDataURL(blob);
-  } catch (error) {
-    console.log('Direct fetch failed, trying background script...');
 
-    try {
-      return await new Promise((resolve, reject) => {
-        try {
-          chrome.runtime.sendMessage({ action: 'fetchImage', imageUrl: url }, response => {
-            if (chrome.runtime.lastError) {
-              console.error('Error in fetchImage message:', chrome.runtime.lastError.message);
-              reject(new Error(chrome.runtime.lastError.message));
-              return;
-            }
+    if (promptsContent) {
+      updatePromptContent(promptsContent as HTMLElement);
+    }
 
-            if (response && response.success && response.dataUrl) {
-              resolve(response.dataUrl);
-            } else {
-              reject(new Error(response?.error || 'Background fetch failed'));
-            }
-          });
-        } catch (sendError) {
-          console.error('Error sending fetchImage message:', sendError);
-          reject(new Error('Failed to send message to background script'));
-        }
-      });
-    } catch (bgError) {
-      console.log('Background fetch failed, trying img element as last resort:', bgError);
+    // Make sure to update the footer buttons
+    updateFooterButtons();
+  }
+}
 
-      // Fallback for cross-origin images: using an image element
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous'; // Try to request CORS access
+// Paste the selected image and/or prompt
+async function pasteSelectedItem() {
+  let success = false;
+  const hostname = window.location.hostname;
+  const isOnChatGPT = hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com');
 
-        img.onload = () => {
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
+  // Prepare for focus
+  window.focus();
+  document.documentElement.focus();
 
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-              reject(new Error('Could not get canvas context'));
-              return;
-            }
+  // Create a focus helper to ensure document has focus
+  const focusHelper = document.createElement('button');
+  focusHelper.style.position = 'fixed';
+  focusHelper.style.opacity = '0';
+  focusHelper.style.pointerEvents = 'none';
+  focusHelper.style.left = '-9999px';
+  focusHelper.setAttribute('tabindex', '1');
+  document.body.appendChild(focusHelper);
+  focusHelper.focus();
 
-            ctx.drawImage(img, 0, 0);
+  try {
+    // Get selected image
+    if (selectedImageId) {
+      const storage = await chrome.storage.local.get(QUEUE_STORAGE_KEY);
+      const imageQueue: QueuedImage[] = storage[QUEUE_STORAGE_KEY] || [];
+      const selectedImage = imageQueue.find(img => img.id === selectedImageId);
 
-            // Get data URL
-            const dataURL = canvas.toDataURL('image/png');
-            resolve(dataURL);
-          } catch (e) {
-            reject(e);
+      if (selectedImage) {
+        success = await copyImageToClipboard(selectedImage.dataUrl);
+        if (success) {
+          showToast('Image copied!', 'success');
+
+          // If on ChatGPT, paste the image first
+          if (isOnChatGPT) {
+            await pasteIntoChatGPT();
+            // Small delay to ensure image paste completes
+            await new Promise(resolve => setTimeout(resolve, 300));
           }
-        };
 
-        img.onerror = e => {
-          reject(new Error('Could not load image: ' + String(e)));
-        };
+          // Handle prompt
+          if (selectedPromptId) {
+            const promptStorage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+            const promptQueue: QueuedPrompt[] = promptStorage[PROMPT_STORAGE_KEY] || [];
+            const selectedPrompt = promptQueue.find(p => p.id === selectedPromptId);
 
-        // Make sure we don't fetch from cache to avoid CORS issues
-        img.src = url + (url.includes('?') ? '&' : '?') + 'cachebuster=' + Date.now();
-      });
-    }
-  }
-}
+            if (selectedPrompt) {
+              // Copy the prompt to clipboard
+              await navigator.clipboard.writeText(selectedPrompt.text);
 
-// Helper function to convert Blob to data URL
-function blobToDataURL(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-// Copy image to clipboard using direct Clipboard API with blob
-async function copyImageToClipboard(dataURL: string): Promise<boolean> {
-  console.log('Starting direct clipboard operation');
-
-  try {
-    // Force conversion to PNG format which has better clipboard support
-    const pngDataUrl = await convertToPng(dataURL);
-
-    // Convert data URL to blob
-    const fetchResponse = await fetch(pngDataUrl);
-    const blob = await fetchResponse.blob();
-
-    // Always use image/png mime type
-    const mimeType = 'image/png';
-
-    // Check if Clipboard API is available
-    if (!navigator.clipboard || !window.ClipboardItem) {
-      throw new Error('Clipboard API not available');
-    }
-
-    // Create a ClipboardItem with the image blob
-    const clipboardItem = new ClipboardItem({
-      [mimeType]: blob,
-    });
-
-    // Write to clipboard
-    await navigator.clipboard.write([clipboardItem]);
-    console.log('Successfully copied image to clipboard with Clipboard API');
-    return true;
-  } catch (error) {
-    console.error('Clipboard API failed:', error);
-
-    // Fallback to execCommand approach
-    try {
-      // Create a temporary image
-      const tempImg = document.createElement('img');
-      tempImg.src = dataURL;
-      tempImg.style.position = 'absolute';
-      tempImg.style.left = '-9999px';
-      tempImg.style.top = '-9999px';
-      document.body.appendChild(tempImg);
-
-      // Wait for the image to load
-      await new Promise(resolve => {
-        tempImg.onload = resolve;
-      });
-
-      // Select and copy
-      const range = document.createRange();
-      range.selectNode(tempImg);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-
-      const success = document.execCommand('copy');
-
-      // Clean up
-      selection?.removeAllRanges();
-      document.body.removeChild(tempImg);
-
-      console.log('Fallback copy method result:', success);
-      return success;
-    } catch (fallbackError) {
-      console.error('All clipboard methods failed:', fallbackError);
-
-      // Last resort: Try background script clipboard access
-      try {
-        return await new Promise(resolve => {
-          chrome.runtime.sendMessage(
-            {
-              action: 'writeImageToClipboard',
-              imageDataUrl: dataURL,
-            },
-            response => {
-              if (chrome.runtime.lastError) {
-                console.error('Background clipboard failed:', chrome.runtime.lastError.message);
-                resolve(false);
-                return;
+              if (isOnChatGPT) {
+                // Give ChatGPT a moment to process the image
+                setTimeout(() => {
+                  pasteIntoChatGPT();
+                  showToast('Image & Prompt pasted!', 'success');
+                }, 300);
+              } else {
+                showToast('Image & Prompt copied!', 'success');
               }
+            }
+          }
+        }
+      }
+    } else if (selectedPromptId) {
+      // Paste just the prompt
+      const promptStorage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+      const promptQueue: QueuedPrompt[] = promptStorage[PROMPT_STORAGE_KEY] || [];
+      const selectedPrompt = promptQueue.find(p => p.id === selectedPromptId);
 
-              resolve(!!response?.success);
-            },
-          );
-        });
-      } catch (bgError) {
-        console.error('Background clipboard access failed:', bgError);
-        return false;
+      if (selectedPrompt) {
+        try {
+          await navigator.clipboard.writeText(selectedPrompt.text);
+
+          if (isOnChatGPT) {
+            await pasteIntoChatGPT();
+            showToast('Prompt pasted!', 'success');
+          } else {
+            showToast('Prompt copied!', 'success');
+          }
+
+          success = true;
+        } catch (err) {
+          console.error('Failed to copy prompt:', err);
+          showToast('Failed to copy prompt', 'error');
+        }
       }
     }
+  } catch (error) {
+    console.error('Error in paste operation:', error);
+    showToast('Error during paste operation', 'error');
+  } finally {
+    // Clean up focus helper
+    if (document.body.contains(focusHelper)) {
+      document.body.removeChild(focusHelper);
+    }
   }
+
+  return success;
 }
 
-// Helper function to ensure image is in PNG format
-async function convertToPng(dataUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
+// Add image to queue
+async function addImageToQueue(imageDataUrl: string, sourceUrl: string): Promise<void> {
+  try {
+    // Generate thumbnail for UI display
+    const thumbnailUrl = await generateThumbnail(imageDataUrl);
 
-    img.onload = () => {
-      try {
-        // Create canvas with same dimensions as image
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+    // Get current queue
+    const storage = await chrome.storage.local.get(QUEUE_STORAGE_KEY);
+    let imageQueue: QueuedImage[] = storage[QUEUE_STORAGE_KEY] || [];
 
-        // Draw image to canvas
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-
-        // Use white background for transparent images
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Draw the image
-        ctx.drawImage(img, 0, 0);
-
-        // Get PNG data URL
-        resolve(canvas.toDataURL('image/png'));
-      } catch (e) {
-        reject(e);
-      }
+    // Create new queue item
+    const newImage: QueuedImage = {
+      id: generateUniqueId(),
+      dataUrl: imageDataUrl,
+      sourceUrl: sourceUrl,
+      timestamp: Date.now(),
+      thumbnailUrl: thumbnailUrl,
     };
 
-    img.onerror = e => {
-      reject(new Error('Could not load image for PNG conversion: ' + String(e)));
+    // Add to beginning of queue
+    imageQueue.unshift(newImage);
+
+    // Limit queue size
+    if (imageQueue.length > MAX_QUEUE_SIZE) {
+      imageQueue = imageQueue.slice(0, MAX_QUEUE_SIZE);
+    }
+
+    // Save updated queue
+    await chrome.storage.local.set({ [QUEUE_STORAGE_KEY]: imageQueue });
+
+    // Update UI if panel exists and is visible
+    if (queuePanel && queuePanelVisible) {
+      const content = queuePanel.querySelector('.panel-content');
+      if (content) {
+        updateImageContent(content.querySelector('.images-content') as HTMLElement);
+      }
+    }
+
+    console.log('Image added to queue, current size:', imageQueue.length);
+  } catch (error) {
+    console.error('Failed to add image to queue:', error);
+  }
+}
+
+// Generate a smaller thumbnail for UI display
+async function generateThumbnail(dataUrl: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      // Calculate dimensions while preserving aspect ratio
+      const MAX_SIZE = 150;
+      let width = img.width;
+      let height = img.height;
+
+      // Determine which dimension to constrain
+      if (width > height) {
+        if (width > MAX_SIZE) {
+          height = Math.round(height * (MAX_SIZE / width));
+          width = MAX_SIZE;
+        }
+      } else {
+        if (height > MAX_SIZE) {
+          width = Math.round(width * (MAX_SIZE / height));
+          height = MAX_SIZE;
+        }
+      }
+
+      // Create canvas for the thumbnail
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      // Draw resized image
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.error('Unable to get canvas context');
+        resolve('');
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Get thumbnail data URL (use JPEG for smaller size)
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load image for thumbnail');
+      resolve(dataUrl); // Fall back to original on error
     };
 
     img.src = dataUrl;
   });
 }
 
-// Initialize with retry mechanism for lazy-loaded content
+// Generate a unique ID for each image
+function generateUniqueId(): string {
+  return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Refined keyboard shortcut handler
+function setupKeyboardShortcut() {
+  document.addEventListener('keydown', async event => {
+    if (event.altKey && (event.key === 'z' || event.key === 'Z')) {
+      // Check for Z too
+      console.log('Keyboard shortcut Alt+Z detected!');
+      event.preventDefault();
+      event.stopPropagation(); // Prevent event bubbling
+
+      const highlightedElement = window.__highlightedElement;
+      if (!highlightedElement) {
+        showToast('No image selected. Hover over an image.', 'error');
+        return;
+      }
+
+      const imageUrl = getImageFromElement(highlightedElement);
+      if (!imageUrl) {
+        showToast('Failed to extract image source.', 'error');
+        return;
+      }
+
+      // --- Enhanced Focus Management ---
+      // Store active element to restore focus later
+      const activeElement = document.activeElement;
+
+      // Create a more robust focus helper
+      const focusHelper = document.createElement('button'); // Using button for better focus behavior
+      focusHelper.style.position = 'fixed';
+      focusHelper.style.opacity = '0';
+      focusHelper.style.pointerEvents = 'none';
+      focusHelper.style.left = '-9999px';
+      focusHelper.setAttribute('tabindex', '1'); // Ensure focusable
+      document.body.appendChild(focusHelper);
+
+      // Multiple focus attempts with different methods
+      window.focus();
+      document.documentElement.focus();
+      focusHelper.focus(); // Attempt to ensure document focus
+
+      // Small delay to ensure focus is established
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // --- End Enhanced Focus Management ---
+
+      showToast('Processing image...', 'info', 1000); // Shorter duration
+
+      try {
+        const dataUrl = await urlToDataURL(imageUrl);
+        console.log('Document has focus before copy attempt:', document.hasFocus());
+        const copySuccess = await copyImageToClipboard(dataUrl);
+
+        if (copySuccess) {
+          showToast('Image copied!', 'success');
+          await addImageToQueue(dataUrl, imageUrl); // Add to queue on success
+
+          // Check if on ChatGPT and attempt paste
+          const hostname = window.location.hostname;
+          if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) {
+            console.log('Detected ChatGPT site, attempting paste...');
+            // Use a minimal delay, relying on user focus potentially being maintained
+            setTimeout(() => pasteIntoChatGPT(), 100);
+          }
+        }
+        // No "else" here, copyImageToClipboard shows its own error toast
+      } catch (error) {
+        console.error('Error processing image shortcut:', error);
+        showToast('Error processing image', 'error');
+      } finally {
+        // --- Restore Focus ---
+        if (document.body.contains(focusHelper)) {
+          document.body.removeChild(focusHelper);
+        }
+        // Try to restore original focus
+        if (activeElement instanceof HTMLElement) {
+          try {
+            // Small delay before restoring focus, might help in some cases
+            setTimeout(() => activeElement.focus({ preventScroll: true }), 50);
+          } catch (focusError) {
+            console.warn('Could not restore focus:', focusError);
+          }
+        }
+        // --- End Restore Focus ---
+      }
+    }
+  });
+}
+
+// Helper function to convert image URL to Data URL (might need background script for CORS)
+async function urlToDataURL(url: string): Promise<string> {
+  try {
+    // Try direct fetch first (works for same-origin or CORS-enabled images)
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Direct fetch failed: ${response.status}`);
+    }
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.log('Direct fetch failed, trying background fetch for:', url, e);
+    // Fallback to background script for potential CORS bypass
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'fetchImage', imageUrl: url }, response => {
+        if (chrome.runtime.lastError) {
+          return reject(new Error(chrome.runtime.lastError.message || 'Background fetch failed'));
+        }
+        if (response?.success) {
+          resolve(response.dataUrl);
+        } else {
+          reject(new Error(response?.error || 'Failed to fetch image via background'));
+        }
+      });
+    });
+  }
+}
+
+// Refined function to copy image data (Data URL) to clipboard
+async function copyImageToClipboard(imageDataUrl: string): Promise<boolean> {
+  if (!navigator.clipboard || !window.ClipboardItem) {
+    console.error('Clipboard API or ClipboardItem not supported.');
+    showToast('Clipboard API not available', 'error');
+    return false;
+  }
+
+  try {
+    // Convert data URL to blob
+    const response = await fetch(imageDataUrl);
+    const blob = await response.blob();
+
+    // Additional focus attempt right before clipboard operation
+    window.focus();
+    document.documentElement.focus();
+
+    // Use the Clipboard API
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        [blob.type]: blob,
+      }),
+    ]);
+    console.log('Image successfully copied to clipboard via content script.');
+    return true;
+  } catch (error) {
+    console.error('Content Script: Failed to write to clipboard:', error);
+
+    // Attempt fallback method if it's a focus-related error
+    if (error instanceof DOMException && error.name === 'NotAllowedError') {
+      try {
+        // Create a temporary image element
+        const img = new Image();
+        img.src = imageDataUrl;
+        await new Promise<void>(resolve => {
+          img.onload = () => resolve();
+          img.onerror = () => {
+            console.error('Failed to load image for fallback method');
+            resolve();
+          };
+        });
+
+        // Create a canvas and draw the image on it
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width || 200;
+        canvas.height = img.height || 200;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          console.error('Unable to get canvas context');
+          return false;
+        }
+
+        ctx.drawImage(img, 0, 0);
+
+        // Try canvas-based copy as fallback
+        const success = await new Promise<boolean>(resolve => {
+          canvas.toBlob(async blob => {
+            if (!blob) {
+              resolve(false);
+              return;
+            }
+
+            try {
+              // One more focus attempt
+              window.focus();
+              document.documentElement.focus();
+
+              await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+              resolve(true);
+            } catch (e) {
+              console.error('Fallback clipboard method failed:', e);
+              resolve(false);
+            }
+          });
+        });
+
+        if (success) {
+          console.log('Image copied using fallback method');
+          return true;
+        }
+      } catch (fallbackError) {
+        console.error('Error in fallback clipboard method:', fallbackError);
+      }
+
+      showToast('Copy failed: Page needs focus. Click on page first.', 'error', 3000);
+    } else {
+      showToast('Failed to copy image.', 'error');
+    }
+    return false;
+  }
+}
+
+// Update image content
+async function updateImageContent(contentElement: HTMLElement) {
+  // Clear current content
+  contentElement.innerHTML = '';
+
+  // Get queue from storage
+  const storage = await chrome.storage.local.get(QUEUE_STORAGE_KEY);
+  const imageQueue: QueuedImage[] = storage[QUEUE_STORAGE_KEY] || [];
+
+  if (imageQueue.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'empty-message';
+    emptyMsg.textContent = 'No images captured yet. Use Alt+Z on an image.';
+    contentElement.appendChild(emptyMsg);
+    return;
+  }
+
+  // Create thumbnail container
+  const thumbnailContainer = document.createElement('div');
+  thumbnailContainer.className = 'thumbnail-container';
+
+  // Sort by timestamp, newest first
+  imageQueue.sort((a, b) => b.timestamp - a.timestamp);
+
+  // Add each thumbnail
+  for (const image of imageQueue) {
+    const thumbnail = document.createElement('div');
+    thumbnail.className = 'thumbnail';
+    thumbnail.dataset.id = image.id;
+
+    // Check if this image is selected
+    if (selectedImageId === image.id) {
+      thumbnail.classList.add('selected');
+    }
+
+    const img = document.createElement('img');
+    img.src = image.thumbnailUrl || image.dataUrl;
+    img.title = `Captured: ${new Date(image.timestamp).toLocaleString()}`;
+    thumbnail.appendChild(img);
+
+    // Add delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.innerHTML = '✕';
+    deleteBtn.title = 'Delete image';
+    deleteBtn.addEventListener('click', async e => {
+      e.stopPropagation(); // Prevent selection of the image
+      await deleteImage(image.id);
+      updateImageContent(contentElement); // Refresh the list
+
+      if (selectedImageId === image.id) {
+        selectedImageId = null; // Clear selection if deleted
+        document.dispatchEvent(new CustomEvent('selection-changed'));
+      }
+    });
+    thumbnail.appendChild(deleteBtn);
+
+    // Click to select this image
+    thumbnail.addEventListener('click', async () => {
+      // Toggle selection if already selected
+      if (selectedImageId === image.id) {
+        selectedImageId = null;
+      } else {
+        selectedImageId = image.id;
+      }
+      selectedPromptId = null;
+      document.dispatchEvent(new CustomEvent('selection-changed'));
+
+      // Update UI to show selection
+      const allImages = thumbnailContainer.querySelectorAll('.thumbnail');
+      allImages.forEach(item => item.classList.remove('selected'));
+      if (selectedImageId) {
+        thumbnail.classList.add('selected');
+      }
+    });
+
+    thumbnailContainer.appendChild(thumbnail);
+  }
+
+  contentElement.appendChild(thumbnailContainer);
+}
+
+// Update prompt content
+async function updatePromptContent(contentElement: HTMLElement) {
+  // Clear current content
+  contentElement.innerHTML = '';
+
+  // Create prompt input area first
+  const promptInputContainer = document.createElement('div');
+  promptInputContainer.className = 'prompt-input-container';
+  promptInputContainer.style.marginBottom = '16px';
+  promptInputContainer.style.display = 'flex';
+  promptInputContainer.style.flexDirection = 'column';
+  promptInputContainer.style.gap = '8px';
+
+  const promptInputLabel = document.createElement('div');
+  promptInputLabel.textContent = 'Create New Prompt';
+  promptInputLabel.style.fontSize = '14px';
+  promptInputLabel.style.fontWeight = '500';
+  promptInputContainer.appendChild(promptInputLabel);
+
+  const inputWrapper = document.createElement('div');
+  inputWrapper.style.display = 'flex';
+  inputWrapper.style.gap = '8px';
+
+  const promptInput = document.createElement('textarea');
+  promptInput.placeholder = 'Type your prompt here...';
+  promptInput.style.flex = '1';
+  promptInput.style.padding = '8px 12px';
+  promptInput.style.borderRadius = '6px';
+  promptInput.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+  promptInput.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+  promptInput.style.color = 'white';
+  promptInput.style.resize = 'vertical';
+  promptInput.style.minHeight = '60px';
+  promptInput.style.fontSize = '14px';
+  inputWrapper.appendChild(promptInput);
+
+  // Create a save button for the prompt input
+  const savePromptBtn = document.createElement('button');
+  savePromptBtn.textContent = 'Save';
+  savePromptBtn.className = 'save-btn';
+  savePromptBtn.style.backgroundColor = '#10B981';
+  savePromptBtn.style.color = 'white';
+  savePromptBtn.style.border = 'none';
+  savePromptBtn.style.borderRadius = '6px';
+  savePromptBtn.style.padding = '8px 16px';
+  savePromptBtn.style.fontSize = '14px';
+  savePromptBtn.style.fontWeight = '500';
+  savePromptBtn.style.cursor = 'pointer';
+  savePromptBtn.style.alignSelf = 'flex-start';
+  savePromptBtn.style.height = 'fit-content';
+
+  savePromptBtn.addEventListener('click', async () => {
+    const promptText = promptInput.value.trim();
+    if (promptText) {
+      await addPromptToQueue(promptText);
+      promptInput.value = ''; // Clear input
+      updatePromptContent(contentElement); // Refresh the list
+      showToast('Prompt saved!', 'success');
+    } else {
+      showToast('Please enter a prompt', 'error');
+    }
+  });
+
+  // Add keyboard shortcut to save with Ctrl+Enter or Cmd+Enter
+  promptInput.addEventListener('keydown', async e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      const promptText = promptInput.value.trim();
+      if (promptText) {
+        await addPromptToQueue(promptText);
+        promptInput.value = ''; // Clear input
+        updatePromptContent(contentElement); // Refresh the list
+        showToast('Prompt saved!', 'success');
+      } else {
+        showToast('Please enter a prompt', 'error');
+      }
+    }
+  });
+
+  inputWrapper.appendChild(savePromptBtn);
+  promptInputContainer.appendChild(inputWrapper);
+  contentElement.appendChild(promptInputContainer);
+
+  // Create prompts list
+  const promptListContainer = document.createElement('div');
+  promptListContainer.className = 'prompt-list-container';
+
+  const promptListHeader = document.createElement('div');
+  promptListHeader.textContent = 'Saved Prompts';
+  promptListHeader.style.fontSize = '14px';
+  promptListHeader.style.fontWeight = '500';
+  promptListHeader.style.marginBottom = '8px';
+  promptListContainer.appendChild(promptListHeader);
+
+  // Get prompts from storage
+  const storage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+  const promptQueue: QueuedPrompt[] = storage[PROMPT_STORAGE_KEY] || [];
+
+  if (promptQueue.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'empty-message';
+    emptyMsg.textContent = 'No prompts saved yet. Type a prompt above and click Save.';
+    promptListContainer.appendChild(emptyMsg);
+    contentElement.appendChild(promptListContainer);
+    return;
+  }
+
+  // Prompt container
+  const promptContainer = document.createElement('div');
+  promptContainer.className = 'prompt-container';
+
+  // Sort by timestamp, newest first
+  promptQueue.sort((a, b) => b.timestamp - a.timestamp);
+
+  for (const prompt of promptQueue) {
+    const promptItem = document.createElement('div');
+    promptItem.className = 'prompt-item';
+    promptItem.dataset.id = prompt.id;
+
+    // Check if this prompt is selected
+    if (selectedPromptId === prompt.id) {
+      promptItem.classList.add('selected');
+    }
+
+    const text = document.createElement('p');
+    text.className = 'prompt-text';
+    text.textContent = prompt.text;
+    promptItem.appendChild(text);
+
+    const meta = document.createElement('div');
+    meta.className = 'prompt-meta';
+    meta.textContent = `Saved: ${new Date(prompt.timestamp).toLocaleString()}`;
+    promptItem.appendChild(meta);
+
+    // Add delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.innerHTML = '✕';
+    deleteBtn.title = 'Delete prompt';
+    deleteBtn.addEventListener('click', async e => {
+      e.stopPropagation(); // Prevent selection of the prompt
+      await deletePrompt(prompt.id);
+      updatePromptContent(contentElement); // Refresh the list
+
+      if (selectedPromptId === prompt.id) {
+        selectedPromptId = null; // Clear selection if deleted
+        document.dispatchEvent(new CustomEvent('selection-changed'));
+      }
+    });
+    promptItem.appendChild(deleteBtn);
+
+    // Click to select this prompt
+    promptItem.addEventListener('click', () => {
+      // Toggle selection
+      if (selectedPromptId === prompt.id) {
+        selectedPromptId = null;
+      } else {
+        selectedPromptId = prompt.id;
+      }
+
+      // Log the selection for debugging
+      console.log('Prompt selection changed to:', selectedPromptId);
+
+      document.dispatchEvent(new CustomEvent('selection-changed'));
+
+      // Update UI to show selection
+      const allPrompts = promptContainer.querySelectorAll('.prompt-item');
+      allPrompts.forEach(item => item.classList.remove('selected'));
+      if (selectedPromptId) {
+        promptItem.classList.add('selected');
+      }
+    });
+
+    promptContainer.appendChild(promptItem);
+  }
+
+  promptListContainer.appendChild(promptContainer);
+  contentElement.appendChild(promptListContainer);
+}
+
+// Delete an image from storage
+async function deleteImage(imageId: string): Promise<void> {
+  try {
+    const storage = await chrome.storage.local.get(QUEUE_STORAGE_KEY);
+    let imageQueue: QueuedImage[] = storage[QUEUE_STORAGE_KEY] || [];
+
+    // Remove the image with the given ID
+    imageQueue = imageQueue.filter(img => img.id !== imageId);
+
+    // Save updated queue
+    await chrome.storage.local.set({ [QUEUE_STORAGE_KEY]: imageQueue });
+
+    console.log(`Image ${imageId} deleted from queue`);
+  } catch (error) {
+    console.error('Failed to delete image:', error);
+  }
+}
+
+// Delete a prompt from storage
+async function deletePrompt(promptId: string): Promise<void> {
+  try {
+    const storage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+    let promptQueue: QueuedPrompt[] = storage[PROMPT_STORAGE_KEY] || [];
+
+    // Remove the prompt with the given ID
+    promptQueue = promptQueue.filter(p => p.id !== promptId);
+
+    // Save updated queue
+    await chrome.storage.local.set({ [PROMPT_STORAGE_KEY]: promptQueue });
+
+    console.log(`Prompt ${promptId} deleted from queue`);
+  } catch (error) {
+    console.error('Failed to delete prompt:', error);
+  }
+}
+
+// Function to add a prompt to the queue
+async function addPromptToQueue(text: string, source?: string): Promise<void> {
+  try {
+    // Get current queue
+    const storage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+    let promptQueue: QueuedPrompt[] = storage[PROMPT_STORAGE_KEY] || [];
+
+    // Check if this prompt already exists
+    const trimmedText = text.trim();
+    const existingPromptIndex = promptQueue.findIndex(p => p.text.trim() === trimmedText);
+
+    if (existingPromptIndex >= 0) {
+      // Move existing prompt to the top of the queue
+      const existingPrompt = promptQueue.splice(existingPromptIndex, 1)[0];
+      existingPrompt.timestamp = Date.now(); // Update timestamp
+      promptQueue.unshift(existingPrompt);
+      console.log('Existing prompt moved to top of queue');
+      showToast('Prompt already exists, moved to top', 'info');
+    } else {
+      // Create new prompt object
+      const newPrompt: QueuedPrompt = {
+        id: generateUniqueId(),
+        text: trimmedText,
+        timestamp: Date.now(),
+        source: source,
+      };
+
+      // Add to beginning of queue
+      promptQueue.unshift(newPrompt);
+      console.log('New prompt added to queue');
+    }
+
+    // Limit queue size
+    if (promptQueue.length > MAX_QUEUE_SIZE) {
+      promptQueue = promptQueue.slice(0, MAX_QUEUE_SIZE);
+    }
+
+    // Save updated queue
+    await chrome.storage.local.set({ [PROMPT_STORAGE_KEY]: promptQueue });
+
+    // Update UI if panel exists and is visible
+    if (queuePanel && queuePanelVisible) {
+      const content = queuePanel.querySelector('.panel-content');
+      if (content) {
+        const promptsContent = content.querySelector('.prompts-content');
+        if (promptsContent) {
+          updatePromptContent(promptsContent as HTMLElement);
+        }
+      }
+    }
+
+    console.log('Prompt queue updated, current size:', promptQueue.length);
+  } catch (error) {
+    console.error('Failed to add prompt to queue:', error);
+    showToast('Failed to save prompt', 'error');
+  }
+}
+
+// Initialize function
 function initialize() {
   setupImageHighlighting();
   setupMutationObserver();
   setupKeyboardShortcut();
   registerContentScriptReady();
+
+  // Check if domain is allowed before showing UI
+  const hostname = window.location.hostname;
+  if (!hostname.includes('chrome.google.com') && !hostname.includes('chrome-extension:')) {
+    // Create UI for image queue
+    createQueuePanel();
+  }
+
+  // Check if we're on ChatGPT and set up helper
+  checkIfChatGPTAndSetupHelper();
 
   // Additional scans for lazy-loaded content
   const retryIntervals = [1000, 3000, 5000, 10000];
