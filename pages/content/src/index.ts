@@ -401,6 +401,37 @@ function createQueuePanel(): HTMLElement {
       margin: 0;
     }
     
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .refresh-btn {
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    
+    .refresh-btn:hover {
+      color: white;
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .refresh-btn .refresh-icon {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+    }
+    
     .panel-close {
       background: none;
       border: none;
@@ -408,10 +439,6 @@ function createQueuePanel(): HTMLElement {
       cursor: pointer;
       font-size: 18px;
       padding: 0 4px;
-    }
-    
-    .panel-close:hover {
-      color: white;
     }
     
     .panel-content {
@@ -672,49 +699,128 @@ function createQueuePanel(): HTMLElement {
   title.textContent = 'PinGenerate AI';
   header.appendChild(title);
 
+  // Create header actions container (refresh and close buttons)
+  const headerActions = document.createElement('div');
+  headerActions.className = 'panel-header-actions';
+
+  // Add refresh button
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'refresh-btn';
+  refreshBtn.title = 'Refresh panel content';
+  refreshBtn.innerHTML = `
+    <span class="refresh-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2v6h-6"></path>
+        <path d="M3 12a9 9 0 0 1 15-6.7l3-3"></path>
+        <path d="M3 22v-6h6"></path>
+        <path d="M21 12a9 9 0 0 1-15 6.7l-3 3"></path>
+      </svg>
+    </span>
+  `;
+
+  refreshBtn.addEventListener('click', () => {
+    // Create a simple rotation animation
+    const icon = refreshBtn.querySelector('.refresh-icon');
+    if (icon) {
+      icon.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], {
+        duration: 500,
+        iterations: 1,
+      });
+    }
+
+    // Refresh content
+    refreshPanelContent();
+  });
+
+  headerActions.appendChild(refreshBtn);
+
+  // Close button
   const closeBtn = document.createElement('button');
   closeBtn.className = 'panel-close';
-  closeBtn.textContent = '✕';
+  closeBtn.innerHTML = '✕';
   closeBtn.title = 'Close panel';
-  closeBtn.addEventListener('click', toggleQueuePanel);
-  header.appendChild(closeBtn);
+  closeBtn.addEventListener('click', () => {
+    queuePanelVisible = false;
+    panel.style.display = 'none';
+  });
 
-  panel.appendChild(header);
+  headerActions.appendChild(closeBtn);
+  header.appendChild(headerActions);
 
-  // Create panel content - split into two sections
+  // Create panel content container
   const content = document.createElement('div');
   content.className = 'panel-content';
+  panel.appendChild(content);
 
-  // Images section (left)
+  // Create panel sections
   const imagesSection = document.createElement('div');
   imagesSection.className = 'panel-section images';
 
   const imagesTitle = document.createElement('h3');
   imagesTitle.className = 'panel-section-title';
   imagesTitle.textContent = 'Images';
+
+  // Add refresh button next to Images title
+  const imagesRefreshBtn = document.createElement('button');
+  imagesRefreshBtn.className = 'refresh-btn';
+  imagesRefreshBtn.title = 'Refresh images';
+  imagesRefreshBtn.style.marginLeft = '8px';
+  imagesRefreshBtn.style.fontSize = '14px';
+  imagesRefreshBtn.style.background = 'none';
+  imagesRefreshBtn.style.border = 'none';
+  imagesRefreshBtn.style.color = 'rgba(255, 255, 255, 0.7)';
+  imagesRefreshBtn.style.cursor = 'pointer';
+  imagesRefreshBtn.style.padding = '2px';
+  imagesRefreshBtn.innerHTML = '🔄';
+
+  imagesRefreshBtn.addEventListener('click', () => {
+    showToast('Refreshing images...', 'info');
+    updateImageContent(imagesContent as HTMLElement);
+    showToast('Images refreshed!', 'success');
+  });
+
+  imagesTitle.appendChild(imagesRefreshBtn);
   imagesSection.appendChild(imagesTitle);
 
   const imagesContent = document.createElement('div');
   imagesContent.className = 'images-content';
   imagesSection.appendChild(imagesContent);
 
-  // Prompts section (right)
   const promptsSection = document.createElement('div');
   promptsSection.className = 'panel-section prompts';
 
   const promptsTitle = document.createElement('h3');
   promptsTitle.className = 'panel-section-title';
   promptsTitle.textContent = 'Prompts';
+
+  // Add refresh button next to Prompts title
+  const promptsRefreshBtn = document.createElement('button');
+  promptsRefreshBtn.className = 'refresh-btn';
+  promptsRefreshBtn.title = 'Refresh prompts';
+  promptsRefreshBtn.style.marginLeft = '8px';
+  promptsRefreshBtn.style.fontSize = '14px';
+  promptsRefreshBtn.style.background = 'none';
+  promptsRefreshBtn.style.border = 'none';
+  promptsRefreshBtn.style.color = 'rgba(255, 255, 255, 0.7)';
+  promptsRefreshBtn.style.cursor = 'pointer';
+  promptsRefreshBtn.style.padding = '2px';
+  promptsRefreshBtn.innerHTML = '🔄';
+
+  promptsRefreshBtn.addEventListener('click', () => {
+    showToast('Refreshing prompts...', 'info');
+    updatePromptContent(promptsContent as HTMLElement);
+    showToast('Prompts refreshed!', 'success');
+  });
+
+  promptsTitle.appendChild(promptsRefreshBtn);
   promptsSection.appendChild(promptsTitle);
 
   const promptsContent = document.createElement('div');
   promptsContent.className = 'prompts-content';
   promptsSection.appendChild(promptsContent);
 
-  // Add sections to content
   content.appendChild(imagesSection);
   content.appendChild(promptsSection);
-  panel.appendChild(content);
 
   // Create the panel footer
   const footer = document.createElement('div');
@@ -1683,6 +1789,37 @@ async function addPromptToQueue(text: string, source?: string): Promise<void> {
     console.error('Failed to add prompt to queue:', error);
     showToast('Failed to save prompt', 'error');
   }
+}
+
+// Function to refresh the panel content
+function refreshPanelContent() {
+  if (!queuePanel) return;
+
+  const shadow = queuePanel.getRootNode() as ShadowRoot;
+
+  // Find the content sections
+  const imagesContent = shadow.querySelector('.images-content');
+  const promptsContent = shadow.querySelector('.prompts-content');
+
+  // Show a toast notification
+  showToast('Refreshing panel content...', 'info');
+
+  // Update both sections
+  if (imagesContent) {
+    updateImageContent(imagesContent as HTMLElement);
+  }
+
+  if (promptsContent) {
+    updatePromptContent(promptsContent as HTMLElement);
+  }
+
+  // Update footer buttons
+  updateFooterButtons();
+
+  // Show completion toast
+  setTimeout(() => {
+    showToast('Panel content refreshed!', 'success');
+  }, 300);
 }
 
 // Initialize function
