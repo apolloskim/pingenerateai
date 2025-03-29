@@ -9,9 +9,9 @@ sampleFunction();
 // Function to add or remove highlight from images
 function toggleImageHighlight(element: HTMLElement | SVGElement, highlight: boolean) {
   if (highlight) {
-    element.style.outline = '3px solid #4285f4';
+    element.style.outline = '3px solid #000000';
     element.style.outlineOffset = '2px';
-    element.style.boxShadow = '0 0 10px rgba(66, 133, 244, 0.6)';
+    element.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.6)';
     element.style.transition = 'all 0.3s ease';
     element.style.zIndex = '9999'; // Ensure highlighted element is on top
     // Store reference to currently highlighted element
@@ -501,7 +501,7 @@ function createQueuePanel(): HTMLElement {
     }
     
     .action-btn {
-      background-color: #3B82F6;
+      background-color: #1a1a1a;
       color: white;
       border: none;
       border-radius: 6px;
@@ -513,11 +513,11 @@ function createQueuePanel(): HTMLElement {
     }
     
     .action-btn:hover {
-      background-color: #2563EB;
+      background-color: #1a1a1a;
     }
     
     .action-btn:disabled {
-      background-color: rgba(59, 130, 246, 0.5);
+      background-color: rgba(0, 0, 0, 0.5);
       cursor: not-allowed;
     }
     
@@ -561,8 +561,8 @@ function createQueuePanel(): HTMLElement {
     }
     
     .thumbnail.selected {
-      border-color: #3B82F6;
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+      border-color: #000000;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
     }
     
     .thumbnail img {
@@ -619,8 +619,8 @@ function createQueuePanel(): HTMLElement {
     }
     
     .prompt-item.selected {
-      border-color: #3B82F6;
-      background-color: rgba(59, 130, 246, 0.1);
+      border-color: #000000;
+      background-color: rgba(0, 0, 0, 0.1);
     }
     
     .prompt-text {
@@ -671,7 +671,7 @@ function createQueuePanel(): HTMLElement {
     }
     
     .save-btn {
-      background-color: #10B981;
+      background-color: #1a1a1a;
       color: white;
       border: none;
       border-radius: 6px;
@@ -683,7 +683,7 @@ function createQueuePanel(): HTMLElement {
     }
     
     .save-btn:hover {
-      background-color: #059669;
+      background-color: #333333;
     }
 
     .selection-dot {
@@ -872,14 +872,20 @@ function createQueuePanel(): HTMLElement {
   // Create a toggle button
   const toggleBtn = document.createElement('button');
   toggleBtn.id = 'pingenerateai-toggle-btn';
-  toggleBtn.innerHTML = '🖼️';
+  toggleBtn.innerHTML = `
+    <svg width="24" height="24" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="white" stroke-width="12">
+      <circle cx="100" cy="100" r="80" />
+      <line x1="60" y1="30" x2="60" y2="170" stroke="white" stroke-width="12" />
+      <line x1="60" y1="100" x2="140" y2="30" stroke="white" stroke-width="12" />
+    </svg>
+  `;
   toggleBtn.title = 'Toggle PinGenerate AI panel';
   toggleBtn.style.position = 'fixed';
   toggleBtn.style.bottom = '20px';
   toggleBtn.style.right = '20px';
   toggleBtn.style.width = '48px';
   toggleBtn.style.height = '48px';
-  toggleBtn.style.backgroundColor = '#3B82F6';
+  toggleBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
   toggleBtn.style.color = 'white';
   toggleBtn.style.border = 'none';
   toggleBtn.style.borderRadius = '50%';
@@ -890,6 +896,7 @@ function createQueuePanel(): HTMLElement {
   toggleBtn.style.cursor = 'pointer';
   toggleBtn.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
   toggleBtn.style.zIndex = '999998';
+  toggleBtn.style.padding = '0';
   toggleBtn.addEventListener('click', toggleQueuePanel);
   shadow.appendChild(toggleBtn);
 
@@ -1489,7 +1496,7 @@ async function updatePromptContent(contentElement: HTMLElement) {
   const savePromptBtn = document.createElement('button');
   savePromptBtn.textContent = 'Save';
   savePromptBtn.className = 'save-btn';
-  savePromptBtn.style.backgroundColor = '#10B981';
+  savePromptBtn.style.backgroundColor = '#1a1a1a';
   savePromptBtn.style.color = 'white';
   savePromptBtn.style.border = 'none';
   savePromptBtn.style.borderRadius = '6px';
