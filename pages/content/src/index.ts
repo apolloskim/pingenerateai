@@ -365,6 +365,32 @@ function createQueuePanel(): HTMLElement {
   panel.style.display = queuePanelVisible ? 'flex' : 'none';
   shadow.appendChild(panel);
 
+  // Add click-outside handler to close the panel
+  document.addEventListener('click', event => {
+    // Only process if panel is visible
+    if (!queuePanelVisible || !queuePanel) return;
+
+    // Get the click target
+    const target = event.target as Node;
+
+    // Check if the click is outside the panel and outside the toggle button
+    const toggleBtn = document.getElementById('pingenerateai-toggle-btn');
+
+    // Use contains() to check if the panel's shadow root contains the clicked element
+    // Note: Since shadow DOM is used, we need to check if the click is within the panel's host element
+    if (
+      panelContainer !== target &&
+      !panelContainer.contains(target) &&
+      toggleBtn !== target &&
+      (toggleBtn ? !toggleBtn.contains(target) : true)
+    ) {
+      // If click is outside, hide the panel
+      queuePanelVisible = false;
+      panel.style.display = 'none';
+      console.log('Panel closed via click-outside');
+    }
+  });
+
   // Define the style
   const style = document.createElement('style');
   style.textContent = `
