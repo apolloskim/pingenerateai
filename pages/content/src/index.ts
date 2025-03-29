@@ -1373,7 +1373,100 @@ async function updatePromptContent(contentElement: HTMLElement) {
     if (promptText) {
       await addPromptToQueue(promptText);
       promptInput.value = ''; // Clear input
-      updatePromptContent(contentElement); // Refresh the list
+
+      // Instead of recursively calling updatePromptContent, directly update the prompt list
+      const storage = await chrome.storage.local.get(PROMPT_STORAGE_KEY);
+      const promptQueue: QueuedPrompt[] = storage[PROMPT_STORAGE_KEY] || [];
+
+      // Clear existing prompts and re-render
+      const existingListContainer = contentElement.querySelector('.prompt-list-container');
+      if (existingListContainer) {
+        contentElement.removeChild(existingListContainer);
+      }
+
+      // Create and append a new prompt list container
+      const promptListContainer = document.createElement('div');
+      promptListContainer.className = 'prompt-list-container';
+
+      const promptListHeader = document.createElement('div');
+      promptListHeader.textContent = 'Saved Prompts';
+      promptListHeader.style.fontSize = '14px';
+      promptListHeader.style.fontWeight = '500';
+      promptListHeader.style.marginBottom = '8px';
+      promptListContainer.appendChild(promptListHeader);
+
+      // Prompt container
+      const promptContainer = document.createElement('div');
+      promptContainer.className = 'prompt-container';
+
+      // Sort by timestamp, newest first
+      promptQueue.sort((a, b) => b.timestamp - a.timestamp);
+
+      for (const prompt of promptQueue) {
+        const promptItem = document.createElement('div');
+        promptItem.className = 'prompt-item';
+        promptItem.dataset.id = prompt.id;
+
+        // Check if this prompt is selected
+        if (selectedPromptId === prompt.id) {
+          promptItem.classList.add('selected');
+        }
+
+        const text = document.createElement('p');
+        text.className = 'prompt-text';
+        text.textContent = prompt.text;
+        promptItem.appendChild(text);
+
+        const meta = document.createElement('div');
+        meta.className = 'prompt-meta';
+        meta.textContent = `Saved: ${new Date(prompt.timestamp).toLocaleString()}`;
+        promptItem.appendChild(meta);
+
+        // Add delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.innerHTML = '✕';
+        deleteBtn.title = 'Delete prompt';
+        deleteBtn.addEventListener('click', async e => {
+          e.stopPropagation(); // Prevent selection of the prompt
+          await deletePrompt(prompt.id);
+          updatePromptContent(contentElement); // Refresh the list
+
+          if (selectedPromptId === prompt.id) {
+            selectedPromptId = null; // Clear selection if deleted
+            document.dispatchEvent(new CustomEvent('selection-changed'));
+          }
+        });
+        promptItem.appendChild(deleteBtn);
+
+        // Click to select this prompt
+        promptItem.addEventListener('click', () => {
+          // Toggle selection
+          if (selectedPromptId === prompt.id) {
+            selectedPromptId = null;
+          } else {
+            selectedPromptId = prompt.id;
+          }
+
+          // Log the selection for debugging
+          console.log('Prompt selection changed to:', selectedPromptId);
+
+          document.dispatchEvent(new CustomEvent('selection-changed'));
+
+          // Update UI to show selection
+          const allPrompts = promptContainer.querySelectorAll('.prompt-item');
+          allPrompts.forEach(item => item.classList.remove('selected'));
+          if (selectedPromptId) {
+            promptItem.classList.add('selected');
+          }
+        });
+
+        promptContainer.appendChild(promptItem);
+      }
+
+      promptListContainer.appendChild(promptContainer);
+      contentElement.appendChild(promptListContainer);
+
       showToast('Prompt saved!', 'success');
     } else {
       showToast('Please enter a prompt', 'error');
@@ -1388,8 +1481,9 @@ async function updatePromptContent(contentElement: HTMLElement) {
       if (promptText) {
         await addPromptToQueue(promptText);
         promptInput.value = ''; // Clear input
-        updatePromptContent(contentElement); // Refresh the list
-        showToast('Prompt saved!', 'success');
+
+        // Trigger click on save button to reuse the same logic
+        savePromptBtn.click();
       } else {
         showToast('Please enter a prompt', 'error');
       }
