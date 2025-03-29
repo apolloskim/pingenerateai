@@ -337,17 +337,23 @@ interface QueuedPrompt {
 const MAX_QUEUE_SIZE = 20; // Store up to 20 recent images
 const QUEUE_STORAGE_KEY = 'pingenerateai_image_queue';
 const PROMPT_STORAGE_KEY = 'pingenerateai_prompt_queue';
+const PANEL_POSITION_STORAGE_KEY = 'pingenerateai_panel_position';
 
 // UI-related variables
 let queuePanelVisible = false;
 let queuePanel: HTMLElement | null = null;
 let selectedImageId: string | null = null;
 let selectedPromptId: string | null = null;
+// Variables for drag functionality
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let initialPanelX = 0;
+let initialPanelY = 0;
 
 // Add this function to create the queue visualization panel
 function createQueuePanel(): HTMLElement {
-  // Only create if it doesn't already exist
-  if (document.getElementById('pingenerateai-panel-container')) {
+  if (queuePanel) {
     return document.getElementById('pingenerateai-panel-container') as HTMLElement;
   }
 
@@ -355,14 +361,33 @@ function createQueuePanel(): HTMLElement {
   const panelContainer = document.createElement('div');
   panelContainer.id = 'pingenerateai-panel-container';
   document.body.appendChild(panelContainer);
-
-  // Create shadow root
   const shadow = panelContainer.attachShadow({ mode: 'open' });
+
+  // Get saved position from storage or use defaults
+  let panelTop = 20;
+  let panelLeft = 20;
+  chrome.storage.local.get(PANEL_POSITION_STORAGE_KEY, result => {
+    if (result[PANEL_POSITION_STORAGE_KEY]) {
+      const savedPosition = result[PANEL_POSITION_STORAGE_KEY];
+      if (savedPosition.top !== undefined && savedPosition.left !== undefined) {
+        panelTop = savedPosition.top;
+        panelLeft = savedPosition.left;
+
+        // Update panel if it exists
+        if (queuePanel) {
+          queuePanel.style.top = `${panelTop}px`;
+          queuePanel.style.left = `${panelLeft}px`;
+        }
+      }
+    }
+  });
 
   // Create panel element
   const panel = document.createElement('div');
   panel.className = 'panel-root';
   panel.style.display = queuePanelVisible ? 'flex' : 'none';
+  panel.style.top = `${panelTop}px`;
+  panel.style.left = `${panelLeft}px`;
   shadow.appendChild(panel);
 
   // Add click-outside handler to close the panel
@@ -397,7 +422,7 @@ function createQueuePanel(): HTMLElement {
     .panel-root {
       position: fixed;
       top: 20px;
-      right: 20px;
+      left: 20px;
       background-color: rgba(0, 0, 0, 0.85);
       border-radius: 12px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -411,6 +436,11 @@ function createQueuePanel(): HTMLElement {
       flex-direction: column;
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .draggable {
+      cursor: move;
+      user-select: none;
     }
     
     .panel-header {
@@ -718,7 +748,7 @@ function createQueuePanel(): HTMLElement {
 
   // Create panel header
   const header = document.createElement('div');
-  header.className = 'panel-header';
+  header.className = 'panel-header draggable';
 
   const title = document.createElement('h2');
   title.className = 'panel-title';
@@ -775,12 +805,12 @@ function createQueuePanel(): HTMLElement {
 
   // Create panel content container
   const content = document.createElement('div');
-  content.className = 'panel-content';
+  content.className = 'panel-content draggable';
   panel.appendChild(content);
 
   // Create panel sections
   const imagesSection = document.createElement('div');
-  imagesSection.className = 'panel-section images';
+  imagesSection.className = 'panel-section images draggable';
 
   const imagesTitle = document.createElement('h3');
   imagesTitle.className = 'panel-section-title';
@@ -813,7 +843,7 @@ function createQueuePanel(): HTMLElement {
   imagesSection.appendChild(imagesContent);
 
   const promptsSection = document.createElement('div');
-  promptsSection.className = 'panel-section prompts';
+  promptsSection.className = 'panel-section prompts draggable';
 
   const promptsTitle = document.createElement('h3');
   promptsTitle.className = 'panel-section-title';
@@ -850,7 +880,7 @@ function createQueuePanel(): HTMLElement {
 
   // Create the panel footer
   const footer = document.createElement('div');
-  footer.className = 'panel-footer';
+  footer.className = 'panel-footer draggable';
 
   const pasteBtn = document.createElement('button');
   pasteBtn.className = 'action-btn';
@@ -900,8 +930,114 @@ function createQueuePanel(): HTMLElement {
   toggleBtn.addEventListener('click', toggleQueuePanel);
   shadow.appendChild(toggleBtn);
 
+  // Add event listeners for dragging the panel
+  const setupDraggable = (element: HTMLElement, isDraggableArea = true) => {
+    if (isDraggableArea) {
+      element.classList.add('draggable');
+    }
+
+    element.addEventListener('mousedown', e => {
+      // Skip if clicking an interactive element (button, input, etc)
+      const target = e.target as HTMLElement;
+      const isInteractiveElement =
+        target.tagName === 'BUTTON' ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'IMG' ||
+        target.closest('.thumbnail') !== null ||
+        target.closest('.prompt-item') !== null ||
+        target.closest('.refresh-btn') !== null ||
+        target.closest('.panel-close') !== null;
+
+      // Don't start drag if clicking on an interactive element
+      if (isInteractiveElement) return;
+
+      // Start dragging
+      isDragging = true;
+
+      // Get panel position
+      const rect = panel.getBoundingClientRect();
+      initialPanelX = rect.left;
+      initialPanelY = rect.top;
+
+      // Get initial mouse position
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+
+      // Add move and up event listeners to the document
+      document.addEventListener('mousemove', handleDragMove);
+      document.addEventListener('mouseup', handleDragEnd);
+
+      // Prevent default behavior and bubbling
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  };
+
+  // Make header draggable
+  setupDraggable(header);
+
+  // Make footer draggable
+  setupDraggable(footer);
+
+  // Make content draggable
+  setupDraggable(content);
+
+  // Make sections draggable
+  setupDraggable(imagesSection);
+  setupDraggable(promptsSection);
+
   queuePanel = panel;
   return queuePanel;
+}
+
+// Handler for moving the panel
+function handleDragMove(e: MouseEvent) {
+  if (!isDragging || !queuePanel) return;
+
+  // Calculate how far the mouse has moved
+  const deltaX = e.clientX - dragStartX;
+  const deltaY = e.clientY - dragStartY;
+
+  // Calculate new position (direct movement)
+  const newLeft = initialPanelX + deltaX;
+  const newTop = initialPanelY + deltaY;
+
+  // Ensure the panel stays within the viewport
+  const rect = queuePanel.getBoundingClientRect();
+  const maxLeft = window.innerWidth - rect.width - 20; // Leave some margin
+  const maxTop = window.innerHeight - rect.height - 20; // Leave some margin
+
+  const finalLeft = Math.min(Math.max(20, newLeft), maxLeft);
+  const finalTop = Math.min(Math.max(20, newTop), maxTop);
+
+  // Apply new position
+  queuePanel.style.left = `${finalLeft}px`;
+  queuePanel.style.top = `${finalTop}px`;
+
+  // Prevent default behavior
+  e.preventDefault();
+}
+
+// Handler for ending the drag
+function handleDragEnd() {
+  if (!isDragging || !queuePanel) return;
+
+  // Stop dragging
+  isDragging = false;
+
+  // Remove event listeners
+  document.removeEventListener('mousemove', handleDragMove);
+  document.removeEventListener('mouseup', handleDragEnd);
+
+  // Save panel position to storage
+  const rect = queuePanel.getBoundingClientRect();
+  chrome.storage.local.set({
+    [PANEL_POSITION_STORAGE_KEY]: {
+      top: rect.top,
+      left: rect.left,
+    },
+  });
 }
 
 // Update footer buttons based on selection state
@@ -1532,6 +1668,8 @@ async function updatePromptContent(contentElement: HTMLElement) {
       promptListHeader.style.fontSize = '14px';
       promptListHeader.style.fontWeight = '500';
       promptListHeader.style.marginBottom = '8px';
+      promptListHeader.style.paddingBottom = '8px';
+      promptListHeader.style.borderBottom = '1px solid rgba(255, 255, 255, 0.1)';
       promptListContainer.appendChild(promptListHeader);
 
       // Prompt container
@@ -1642,6 +1780,8 @@ async function updatePromptContent(contentElement: HTMLElement) {
   promptListHeader.style.fontSize = '14px';
   promptListHeader.style.fontWeight = '500';
   promptListHeader.style.marginBottom = '8px';
+  promptListHeader.style.paddingBottom = '8px';
+  promptListHeader.style.borderBottom = '1px solid rgba(255, 255, 255, 0.1)';
   promptListContainer.appendChild(promptListHeader);
 
   // Get prompts from storage
