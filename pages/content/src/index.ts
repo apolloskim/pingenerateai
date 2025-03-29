@@ -350,6 +350,8 @@ let dragStartX = 0;
 let dragStartY = 0;
 let initialPanelX = 0;
 let initialPanelY = 0;
+let panelTranslateX = 0;
+let panelTranslateY = 0;
 
 // Add this function to create the queue visualization panel
 function createQueuePanel(): HTMLElement {
@@ -436,6 +438,14 @@ function createQueuePanel(): HTMLElement {
       flex-direction: column;
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.1);
+      will-change: transform; /* Hardware acceleration hint */
+      transform: translate3d(0, 0, 0); /* Force hardware acceleration */
+      transition: box-shadow 0.2s ease;
+    }
+    
+    .panel-root.dragging {
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+      transition: none; /* Disable transitions while dragging */
     }
     
     .draggable {
@@ -954,6 +964,7 @@ function createQueuePanel(): HTMLElement {
 
       // Start dragging
       isDragging = true;
+      queuePanel?.classList.add('dragging');
 
       // Get panel position
       const rect = panel.getBoundingClientRect();
@@ -965,8 +976,8 @@ function createQueuePanel(): HTMLElement {
       dragStartY = e.clientY;
 
       // Add move and up event listeners to the document
-      document.addEventListener('mousemove', handleDragMove);
-      document.addEventListener('mouseup', handleDragEnd);
+      document.addEventListener('mousemove', handleDragMove, { capture: true });
+      document.addEventListener('mouseup', handleDragEnd, { capture: true });
 
       // Prevent default behavior and bubbling
       e.preventDefault();
@@ -995,49 +1006,59 @@ function createQueuePanel(): HTMLElement {
 function handleDragMove(e: MouseEvent) {
   if (!isDragging || !queuePanel) return;
 
-  // Calculate how far the mouse has moved
+  // Calculate how far the mouse has moved (direct calculation)
   const deltaX = e.clientX - dragStartX;
   const deltaY = e.clientY - dragStartY;
 
-  // Calculate new position (direct movement)
-  const newLeft = initialPanelX + deltaX;
-  const newTop = initialPanelY + deltaY;
+  // Apply the transform directly - skipping requestAnimationFrame for maximum responsiveness
+  queuePanel.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`; // Use translate3d for hardware acceleration
 
-  // Ensure the panel stays within the viewport
-  const rect = queuePanel.getBoundingClientRect();
-  const maxLeft = window.innerWidth - rect.width - 20; // Leave some margin
-  const maxTop = window.innerHeight - rect.height - 20; // Leave some margin
-
-  const finalLeft = Math.min(Math.max(20, newLeft), maxLeft);
-  const finalTop = Math.min(Math.max(20, newTop), maxTop);
-
-  // Apply new position
-  queuePanel.style.left = `${finalLeft}px`;
-  queuePanel.style.top = `${finalTop}px`;
-
-  // Prevent default behavior
+  // Prevent default behavior to avoid any delay
   e.preventDefault();
+  e.stopPropagation();
 }
 
 // Handler for ending the drag
-function handleDragEnd() {
+function handleDragEnd(e: MouseEvent) {
   if (!isDragging || !queuePanel) return;
 
   // Stop dragging
   isDragging = false;
+  queuePanel?.classList.remove('dragging');
 
   // Remove event listeners
-  document.removeEventListener('mousemove', handleDragMove);
-  document.removeEventListener('mouseup', handleDragEnd);
+  document.removeEventListener('mousemove', handleDragMove, { capture: true });
+  document.removeEventListener('mouseup', handleDragEnd, { capture: true });
 
-  // Save panel position to storage
+  // Calculate new position
+  const deltaX = e.clientX - dragStartX;
+  const deltaY = e.clientY - dragStartY;
+
+  // Direct calculation of new position
+  const newLeft = initialPanelX + deltaX;
+  const newTop = initialPanelY + deltaY;
+
+  // Get viewport boundaries (simplified)
   const rect = queuePanel.getBoundingClientRect();
-  chrome.storage.local.set({
-    [PANEL_POSITION_STORAGE_KEY]: {
-      top: rect.top,
-      left: rect.left,
-    },
-  });
+  const maxLeft = window.innerWidth - rect.width - 10;
+  const maxTop = window.innerHeight - rect.height - 10;
+
+  // Constrain position (simplified math)
+  const finalLeft = newLeft < 10 ? 10 : newLeft > maxLeft ? maxLeft : newLeft;
+  const finalTop = newTop < 10 ? 10 : newTop > maxTop ? maxTop : newTop;
+
+  // Reset transform and set the new position in one operation
+  queuePanel.style.cssText += `transform: none; left: ${finalLeft}px; top: ${finalTop}px;`;
+
+  // Save position asynchronously to not block UI
+  setTimeout(() => {
+    chrome.storage.local.set({
+      [PANEL_POSITION_STORAGE_KEY]: {
+        top: finalTop,
+        left: finalLeft,
+      },
+    });
+  }, 0);
 }
 
 // Update footer buttons based on selection state
