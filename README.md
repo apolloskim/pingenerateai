@@ -19,6 +19,12 @@ PinGenerate AI is a Chrome extension that provides a simple way to capture, stor
 - **Reusable Images**: Click on any thumbnail in the panel to copy it again
 - **ChatGPT Integration**: Special support for direct image pasting into ChatGPT
 
+## Demo
+
+<div align="center">
+  <video src="pingenerateai.mp4" controls width="100%" style="max-width: 720px"></video>
+</div>
+
 ## Acknowledgments
 
 This project was built using the [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo/chrome-extension-boilerplate-react-vite) by [Jonghakseo](https://github.com/Jonghakseo). We would like to express our sincere gratitude to the creator and all contributors of this excellent boilerplate for making Chrome extension development significantly easier and more enjoyable.
@@ -175,4 +181,3 @@ Also, suggest new features or share any challenges you've faced while developing
 - [Rollup](https://rollupjs.org/guide/en/)
 - [Turborepo](https://turbo.build/repo/docs)
 - [Rollup-plugin-chrome-extension](https://www.extend-chrome.dev/rollup-plugin)
-
