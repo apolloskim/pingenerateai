@@ -490,12 +490,14 @@ function createQueuePanel(): HTMLElement {
     .refresh-btn:hover {
       color: white;
       background-color: rgba(255, 255, 255, 0.1);
+      transform: rotate(30deg);
     }
     
     .refresh-btn .refresh-icon {
       display: inline-block;
       width: 16px;
       height: 16px;
+      color: white;
     }
     
     .panel-close {
@@ -527,6 +529,18 @@ function createQueuePanel(): HTMLElement {
       margin: 0 0 16px 0;
       padding-bottom: 8px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex: 1;
+    }
+    
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    
+    .section-refresh {
+      margin-left: 8px;
     }
     
     .panel-section.images {
@@ -774,14 +788,13 @@ function createQueuePanel(): HTMLElement {
   refreshBtn.className = 'refresh-btn';
   refreshBtn.title = 'Refresh panel content';
   refreshBtn.innerHTML = `
-    <span class="refresh-icon">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 2v6h-6"></path>
-        <path d="M3 12a9 9 0 0 1 15-6.7l3-3"></path>
-        <path d="M3 22v-6h6"></path>
-        <path d="M21 12a9 9 0 0 1-15 6.7l-3 3"></path>
-      </svg>
-    </span>
+    <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.453 12.6672C20.0582 16.4133 16.9138 19.4451 13.0909 19.4451C10.5058 19.4451 8.13405 18.1293 6.76304 16.1338M3.54708 11.3328C3.94185 7.58664 7.08622 4.55487 10.9091 4.55487C13.4942 4.55487 15.8659 5.87072 17.237 7.86615M16.9978 3.50023L17.7729 8.61372L12.6594 7.83868M7.00218 20.4998L6.22714 15.3863L11.3406 16.1613" 
+        stroke="currentColor" 
+        stroke-width="1.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+    </svg>
   `;
 
   refreshBtn.addEventListener('click', () => {
@@ -822,67 +835,77 @@ function createQueuePanel(): HTMLElement {
   const imagesSection = document.createElement('div');
   imagesSection.className = 'panel-section images draggable';
 
+  const imagesSectionHeader = document.createElement('div');
+  imagesSectionHeader.className = 'section-header draggable';
+  imagesSection.appendChild(imagesSectionHeader);
+
   const imagesTitle = document.createElement('h3');
   imagesTitle.className = 'panel-section-title';
-  imagesTitle.textContent = 'Images';
+  imagesTitle.textContent = 'Recent Images';
+  imagesSectionHeader.appendChild(imagesTitle);
 
-  // Add refresh button next to Images title
+  // Create refresh button for images
   const imagesRefreshBtn = document.createElement('button');
-  imagesRefreshBtn.className = 'refresh-btn';
+  imagesRefreshBtn.className = 'refresh-btn section-refresh';
   imagesRefreshBtn.title = 'Refresh images';
-  imagesRefreshBtn.style.marginLeft = '8px';
-  imagesRefreshBtn.style.fontSize = '14px';
-  imagesRefreshBtn.style.background = 'none';
-  imagesRefreshBtn.style.border = 'none';
-  imagesRefreshBtn.style.color = 'rgba(255, 255, 255, 0.7)';
-  imagesRefreshBtn.style.cursor = 'pointer';
-  imagesRefreshBtn.style.padding = '2px';
-  imagesRefreshBtn.innerHTML = '🔄';
+  imagesRefreshBtn.innerHTML = `
+    <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.453 12.6672C20.0582 16.4133 16.9138 19.4451 13.0909 19.4451C10.5058 19.4451 8.13405 18.1293 6.76304 16.1338M3.54708 11.3328C3.94185 7.58664 7.08622 4.55487 10.9091 4.55487C13.4942 4.55487 15.8659 5.87072 17.237 7.86615M16.9978 3.50023L17.7729 8.61372L12.6594 7.83868M7.00218 20.4998L6.22714 15.3863L11.3406 16.1613" 
+        stroke="currentColor" 
+        stroke-width="1.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+    </svg>
+  `;
 
   imagesRefreshBtn.addEventListener('click', () => {
     showToast('Refreshing images...', 'info');
-    updateImageContent(imagesContent as HTMLElement);
-    showToast('Images refreshed!', 'success');
+    updateImageContent(imagesContent);
   });
+  imagesSectionHeader.appendChild(imagesRefreshBtn);
 
-  imagesTitle.appendChild(imagesRefreshBtn);
-  imagesSection.appendChild(imagesTitle);
-
+  // Create images content
   const imagesContent = document.createElement('div');
   imagesContent.className = 'images-content';
+  updateImageContent(imagesContent);
   imagesSection.appendChild(imagesContent);
 
   const promptsSection = document.createElement('div');
   promptsSection.className = 'panel-section prompts draggable';
 
+  const promptsSectionHeader = document.createElement('div');
+  promptsSectionHeader.className = 'section-header draggable';
+  promptsSection.appendChild(promptsSectionHeader);
+
   const promptsTitle = document.createElement('h3');
   promptsTitle.className = 'panel-section-title';
-  promptsTitle.textContent = 'Prompts';
+  promptsTitle.textContent = 'Saved Prompts';
+  promptsSectionHeader.appendChild(promptsTitle);
 
-  // Add refresh button next to Prompts title
+  // Create refresh button for prompts
   const promptsRefreshBtn = document.createElement('button');
-  promptsRefreshBtn.className = 'refresh-btn';
+  promptsRefreshBtn.className = 'refresh-btn section-refresh';
   promptsRefreshBtn.title = 'Refresh prompts';
-  promptsRefreshBtn.style.marginLeft = '8px';
-  promptsRefreshBtn.style.fontSize = '14px';
-  promptsRefreshBtn.style.background = 'none';
-  promptsRefreshBtn.style.border = 'none';
-  promptsRefreshBtn.style.color = 'rgba(255, 255, 255, 0.7)';
-  promptsRefreshBtn.style.cursor = 'pointer';
-  promptsRefreshBtn.style.padding = '2px';
-  promptsRefreshBtn.innerHTML = '🔄';
+  promptsRefreshBtn.innerHTML = `
+    <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.453 12.6672C20.0582 16.4133 16.9138 19.4451 13.0909 19.4451C10.5058 19.4451 8.13405 18.1293 6.76304 16.1338M3.54708 11.3328C3.94185 7.58664 7.08622 4.55487 10.9091 4.55487C13.4942 4.55487 15.8659 5.87072 17.237 7.86615M16.9978 3.50023L17.7729 8.61372L12.6594 7.83868M7.00218 20.4998L6.22714 15.3863L11.3406 16.1613" 
+        stroke="currentColor" 
+        stroke-width="1.5" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+    </svg>
+  `;
 
   promptsRefreshBtn.addEventListener('click', () => {
     showToast('Refreshing prompts...', 'info');
-    updatePromptContent(promptsContent as HTMLElement);
-    showToast('Prompts refreshed!', 'success');
+    updatePromptContent(promptsContent);
   });
+  promptsSectionHeader.appendChild(promptsRefreshBtn);
 
-  promptsTitle.appendChild(promptsRefreshBtn);
-  promptsSection.appendChild(promptsTitle);
-
+  // Create prompts content
   const promptsContent = document.createElement('div');
   promptsContent.className = 'prompts-content';
+  updatePromptContent(promptsContent);
   promptsSection.appendChild(promptsContent);
 
   content.appendChild(imagesSection);
