@@ -22,7 +22,11 @@ PinGenerate AI is a Chrome extension that provides a simple way to capture, stor
 ## Demo
 
 <div align="center">
-  <video src="pingenerateai.mp4" controls width="100%" style="max-width: 720px"></video>
+  <a href="pingenerateai.mp4">
+    <img src="demo-screenshot.png" alt="PinGenerate AI Demo" width="600">
+    <br>
+    <b>Click to view demo video</b>
+  </a>
 </div>
 
 ## Acknowledgments
