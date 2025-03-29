@@ -338,6 +338,7 @@ const MAX_QUEUE_SIZE = 20; // Store up to 20 recent images
 const QUEUE_STORAGE_KEY = 'pingenerateai_image_queue';
 const PROMPT_STORAGE_KEY = 'pingenerateai_prompt_queue';
 const PANEL_POSITION_STORAGE_KEY = 'pingenerateai_panel_position';
+const PANEL_SIZE_STORAGE_KEY = 'pingenerateai_panel_size';
 
 // UI-related variables
 let queuePanelVisible = false;
@@ -352,6 +353,13 @@ let initialPanelX = 0;
 let initialPanelY = 0;
 let panelTranslateX = 0;
 let panelTranslateY = 0;
+// Variables for resize functionality
+let isResizing = false;
+let resizeType = '';
+let initialWidth = 0;
+let initialHeight = 0;
+let initialX = 0;
+let initialY = 0;
 
 // Add this function to create the queue visualization panel
 function createQueuePanel(): HTMLElement {
@@ -368,7 +376,12 @@ function createQueuePanel(): HTMLElement {
   // Get saved position from storage or use defaults
   let panelTop = 20;
   let panelLeft = 20;
-  chrome.storage.local.get(PANEL_POSITION_STORAGE_KEY, result => {
+  let panelWidth = 700;
+  let panelHeight = 500;
+
+  // Load both position and size
+  chrome.storage.local.get([PANEL_POSITION_STORAGE_KEY, PANEL_SIZE_STORAGE_KEY], result => {
+    // Handle position
     if (result[PANEL_POSITION_STORAGE_KEY]) {
       const savedPosition = result[PANEL_POSITION_STORAGE_KEY];
       if (savedPosition.top !== undefined && savedPosition.left !== undefined) {
@@ -382,6 +395,21 @@ function createQueuePanel(): HTMLElement {
         }
       }
     }
+
+    // Handle size
+    if (result[PANEL_SIZE_STORAGE_KEY]) {
+      const savedSize = result[PANEL_SIZE_STORAGE_KEY];
+      if (savedSize.width && savedSize.height) {
+        panelWidth = savedSize.width;
+        panelHeight = savedSize.height;
+
+        // Update panel if it exists
+        if (queuePanel) {
+          queuePanel.style.width = `${panelWidth}px`;
+          queuePanel.style.height = `${panelHeight}px`;
+        }
+      }
+    }
   });
 
   // Create panel element
@@ -390,6 +418,8 @@ function createQueuePanel(): HTMLElement {
   panel.style.display = queuePanelVisible ? 'flex' : 'none';
   panel.style.top = `${panelTop}px`;
   panel.style.left = `${panelLeft}px`;
+  panel.style.width = `${panelWidth}px`;
+  panel.style.height = `${panelHeight}px`;
   shadow.appendChild(panel);
 
   // Add click-outside handler to close the panel
@@ -431,9 +461,8 @@ function createQueuePanel(): HTMLElement {
       color: white;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       z-index: 999999;
-      max-width: 700px;
       width: 700px;
-      max-height: 90vh;
+      height: 500px;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -441,18 +470,88 @@ function createQueuePanel(): HTMLElement {
       will-change: transform; /* Hardware acceleration hint */
       transform: translate3d(0, 0, 0); /* Force hardware acceleration */
       transition: box-shadow 0.2s ease;
+      min-width: 300px;
+      min-height: 300px;
+      max-width: 95vw;
+      max-height: 95vh;
     }
-    
-    .panel-root.dragging {
-      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-      transition: none; /* Disable transitions while dragging */
+
+    /* Resize handles */
+    .resize-handle {
+      position: absolute;
+      background: transparent;
+      z-index: 1000000;
     }
-    
-    .draggable {
-      cursor: move;
+
+    .resize-n {
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      cursor: n-resize;
+    }
+
+    .resize-e {
+      top: 0;
+      right: 0;
+      width: 6px;
+      height: 100%;
+      cursor: e-resize;
+    }
+
+    .resize-s {
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      cursor: s-resize;
+    }
+
+    .resize-w {
+      top: 0;
+      left: 0;
+      width: 6px;
+      height: 100%;
+      cursor: w-resize;
+    }
+
+    .resize-ne {
+      top: 0;
+      right: 0;
+      width: 12px;
+      height: 12px;
+      cursor: ne-resize;
+    }
+
+    .resize-se {
+      bottom: 0;
+      right: 0;
+      width: 12px;
+      height: 12px;
+      cursor: se-resize;
+    }
+
+    .resize-sw {
+      bottom: 0;
+      left: 0;
+      width: 12px;
+      height: 12px;
+      cursor: sw-resize;
+    }
+
+    .resize-nw {
+      top: 0;
+      left: 0;
+      width: 12px;
+      height: 12px;
+      cursor: nw-resize;
+    }
+
+    .panel-root.resizing {
+      transition: none;
       user-select: none;
     }
-    
+
     .panel-header {
       display: flex;
       justify-content: space-between;
@@ -460,19 +559,19 @@ function createQueuePanel(): HTMLElement {
       padding: 12px 16px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
-    
+
     .panel-title {
       font-size: 16px;
       font-weight: 600;
       margin: 0;
     }
-    
+
     .panel-header-actions {
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    
+
     .refresh-btn {
       background: none;
       border: none;
@@ -486,20 +585,20 @@ function createQueuePanel(): HTMLElement {
       justify-content: center;
       transition: all 0.2s ease;
     }
-    
+
     .refresh-btn:hover {
       color: white;
       background-color: rgba(255, 255, 255, 0.1);
       transform: rotate(30deg);
     }
-    
+
     .refresh-btn .refresh-icon {
       display: inline-block;
       width: 16px;
       height: 16px;
       color: white;
     }
-    
+
     .panel-close {
       background: none;
       border: none;
@@ -508,21 +607,21 @@ function createQueuePanel(): HTMLElement {
       font-size: 18px;
       padding: 0 4px;
     }
-    
+
     .panel-content {
       display: flex;
       flex: 1;
       min-height: 400px;
       max-height: 80vh;
     }
-    
+
     .panel-section {
       flex: 1;
       overflow-y: auto;
       padding: 16px;
       position: relative;
     }
-    
+
     .panel-section-title {
       font-size: 16px;
       font-weight: 600;
@@ -531,29 +630,29 @@ function createQueuePanel(): HTMLElement {
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       flex: 1;
     }
-    
+
     .section-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 16px;
     }
-    
+
     .section-refresh {
       margin-left: 8px;
     }
-    
+
     .panel-section.images {
       border-right: 1px solid rgba(255, 255, 255, 0.1);
     }
-    
+
     .panel-footer {
       padding: 12px 16px;
       display: flex;
       justify-content: flex-end;
       border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
-    
+
     .action-btn {
       background-color: #1a1a1a;
       color: white;
@@ -565,16 +664,16 @@ function createQueuePanel(): HTMLElement {
       cursor: pointer;
       transition: background-color 0.2s ease;
     }
-    
+
     .action-btn:hover {
       background-color: #1a1a1a;
     }
-    
+
     .action-btn:disabled {
       background-color: rgba(0, 0, 0, 0.5);
       cursor: not-allowed;
     }
-    
+
     .secondary-btn {
       background-color: rgba(255, 255, 255, 0.1);
       color: white;
@@ -586,7 +685,7 @@ function createQueuePanel(): HTMLElement {
       cursor: pointer;
       margin-right: 8px;
     }
-    
+
     .secondary-btn:hover {
       background: rgba(255, 255, 255, 0.2);
     }
@@ -598,7 +697,7 @@ function createQueuePanel(): HTMLElement {
       gap: 12px;
       margin-top: 8px;
     }
-    
+
     .thumbnail {
       position: relative;
       border-radius: 8px;
@@ -608,23 +707,23 @@ function createQueuePanel(): HTMLElement {
       transition: transform 0.2s ease, box-shadow 0.2s ease;
       border: 2px solid transparent;
     }
-    
+
     .thumbnail:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
-    
+
     .thumbnail.selected {
       border-color: white;
       box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
     }
-    
+
     .thumbnail img {
       width: 100%;
       height: 100%;
       object-fit: cover;
     }
-    
+
     .thumbnail .delete-btn {
       position: absolute;
       top: 4px;
@@ -644,11 +743,11 @@ function createQueuePanel(): HTMLElement {
       transition: opacity 0.2s ease;
       z-index: 1;
     }
-    
+
     .thumbnail:hover .delete-btn {
       opacity: 1;
     }
-    
+
     /* Prompt items styling */
     .prompt-container {
       display: flex;
@@ -657,7 +756,7 @@ function createQueuePanel(): HTMLElement {
       max-height: 300px;
       overflow-y: auto;
     }
-    
+
     .prompt-item {
       position: relative;
       border-radius: 8px;
@@ -667,28 +766,28 @@ function createQueuePanel(): HTMLElement {
       transition: background-color 0.2s ease;
       border: 2px solid transparent;
     }
-    
+
     .prompt-item:hover {
       background-color: rgba(255, 255, 255, 0.1);
     }
-    
+
     .prompt-item.selected {
       border-color: white;
       background-color: rgba(255, 255, 255, 0.15);
     }
-    
+
     .prompt-text {
       margin: 0 0 8px 0;
       font-size: 14px;
       line-height: 1.4;
       white-space: pre-wrap;
     }
-    
+
     .prompt-meta {
       font-size: 11px;
       color: rgba(255, 255, 255, 0.6);
     }
-    
+
     .prompt-item .delete-btn {
       position: absolute;
       top: 8px;
@@ -707,23 +806,23 @@ function createQueuePanel(): HTMLElement {
       opacity: 0;
       transition: opacity 0.2s ease;
     }
-    
+
     .prompt-item:hover .delete-btn {
       opacity: 1;
     }
-    
+
     .empty-message {
       padding: 24px 0;
       text-align: center;
       color: rgba(255, 255, 255, 0.5);
       font-style: italic;
     }
-    
+
     /* Prompt input styling */
     .prompt-input-container {
       margin-bottom: 16px;
     }
-    
+
     .save-btn {
       background-color: #1a1a1a;
       color: white;
@@ -735,7 +834,7 @@ function createQueuePanel(): HTMLElement {
       cursor: pointer;
       transition: background-color 0.2s ease;
     }
-    
+
     .save-btn:hover {
       background-color: #333333;
     }
@@ -748,22 +847,22 @@ function createQueuePanel(): HTMLElement {
       border-radius: 50%;
       margin-left: 5px;
     }
-    
+
     /* Custom scrollbar */
     ::-webkit-scrollbar {
       width: 6px;
     }
-    
+
     ::-webkit-scrollbar-track {
       background: rgba(255, 255, 255, 0.05);
       border-radius: 3px;
     }
-    
+
     ::-webkit-scrollbar-thumb {
       background-color: rgba(255, 255, 255, 0.2);
       border-radius: 3px;
     }
-    
+
     ::-webkit-scrollbar-thumb:hover {
       background-color: rgba(255, 255, 255, 0.3);
     }
@@ -1021,8 +1120,125 @@ function createQueuePanel(): HTMLElement {
   setupDraggable(imagesSection);
   setupDraggable(promptsSection);
 
+  // Add resize handles
+  setupResize(panel);
+
   queuePanel = panel;
   return queuePanel;
+}
+
+// Set up panel resize functionality
+function setupResize(panel: HTMLElement) {
+  const resizeDirections = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
+
+  // Create resize handles for all directions
+  resizeDirections.forEach(dir => {
+    const handle = document.createElement('div');
+    handle.className = `resize-handle resize-${dir}`;
+    panel.appendChild(handle);
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Start resizing
+      isResizing = true;
+      resizeType = dir;
+
+      // Store initial panel dimensions and position
+      const rect = panel.getBoundingClientRect();
+      initialWidth = rect.width;
+      initialHeight = rect.height;
+      initialX = rect.left;
+      initialY = rect.top;
+
+      // Store initial mouse position
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+
+      // Add resize classes
+      panel.classList.add('resizing');
+
+      // Add document-level event listeners
+      document.addEventListener('mousemove', handleResize, { capture: true });
+      document.addEventListener('mouseup', stopResize, { capture: true });
+    });
+  });
+}
+
+// Handle resize during mouse movement
+function handleResize(e: MouseEvent) {
+  if (!isResizing || !queuePanel) return;
+
+  // Calculate mouse movement delta
+  const deltaX = e.clientX - dragStartX;
+  const deltaY = e.clientY - dragStartY;
+
+  // Get current dimensions
+  let newWidth = initialWidth;
+  let newHeight = initialHeight;
+  let newX = initialX;
+  let newY = initialY;
+
+  // Apply changes based on resize direction
+  if (resizeType.includes('e')) {
+    // East - right edge
+    newWidth = Math.max(300, initialWidth + deltaX);
+  }
+  if (resizeType.includes('w')) {
+    // West - left edge
+    newWidth = Math.max(300, initialWidth - deltaX);
+    newX = initialX + initialWidth - newWidth;
+  }
+  if (resizeType.includes('s')) {
+    // South - bottom edge
+    newHeight = Math.max(300, initialHeight + deltaY);
+  }
+  if (resizeType.includes('n')) {
+    // North - top edge
+    newHeight = Math.max(300, initialHeight - deltaY);
+    newY = initialY + initialHeight - newHeight;
+  }
+
+  // Apply new dimensions and position
+  queuePanel.style.width = `${newWidth}px`;
+  queuePanel.style.height = `${newHeight}px`;
+  queuePanel.style.left = `${newX}px`;
+  queuePanel.style.top = `${newY}px`;
+
+  // Prevent default
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+// Stop resizing on mouse up
+function stopResize() {
+  if (!isResizing || !queuePanel) return;
+
+  // Stop resizing
+  isResizing = false;
+  queuePanel.classList.remove('resizing');
+
+  // Remove event listeners
+  document.removeEventListener('mousemove', handleResize, { capture: true });
+  document.removeEventListener('mouseup', stopResize, { capture: true });
+
+  // Save new dimensions to storage
+  const rect = queuePanel.getBoundingClientRect();
+  chrome.storage.local.set({
+    [PANEL_SIZE_STORAGE_KEY]: {
+      width: rect.width,
+      height: rect.height,
+    },
+  });
+
+  // Update panel position storage as well since it might have changed
+  chrome.storage.local.set({
+    [PANEL_POSITION_STORAGE_KEY]: {
+      top: rect.top,
+      left: rect.left,
+    },
+  });
 }
 
 // Handler for moving the panel
