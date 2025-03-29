@@ -615,8 +615,8 @@ function createQueuePanel(): HTMLElement {
     }
     
     .thumbnail.selected {
-      border-color: #000000;
-      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+      border-color: white;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
     }
     
     .thumbnail img {
@@ -673,8 +673,8 @@ function createQueuePanel(): HTMLElement {
     }
     
     .prompt-item.selected {
-      border-color: #000000;
-      background-color: rgba(0, 0, 0, 0.1);
+      border-color: white;
+      background-color: rgba(255, 255, 255, 0.15);
     }
     
     .prompt-text {
@@ -744,7 +744,7 @@ function createQueuePanel(): HTMLElement {
       display: inline-block;
       width: 8px;
       height: 8px;
-      background-color: #4CAF50;
+      background-color: white;
       border-radius: 50%;
       margin-left: 5px;
     }
