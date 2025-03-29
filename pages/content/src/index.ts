@@ -701,48 +701,47 @@ function createQueuePanel(): HTMLElement {
     /* Image thumbnails styling */
     .thumbnail-container {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-      margin-top: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+      gap: 10px;
+      padding: 10px;
     }
 
     .thumbnail {
       position: relative;
-      border-radius: 8px;
+      border-radius: 4px;
       overflow: hidden;
       cursor: pointer;
-      aspect-ratio: 16/9;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-      border: 2px solid transparent;
-    }
-
-    .thumbnail:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      aspect-ratio: 1/1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: rgba(0,0,0,0.05);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+      transition: all 0.2s ease;
     }
 
     .thumbnail.selected {
-      border-color: white;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 0 2px #4285f4, 0 1px 3px rgba(0,0,0,0.2);
     }
 
     .thumbnail img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
     }
 
     .thumbnail .delete-btn {
       position: absolute;
       top: 4px;
       right: 4px;
-      background-color: rgba(0, 0, 0, 0.7);
+      background: rgba(0,0,0,0.5);
       color: white;
       border: none;
       border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      font-size: 12px;
+      width: 20px;
+      height: 20px;
+      font-size: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1588,6 +1587,10 @@ async function updateImageContent(contentElement: HTMLElement) {
   // Create thumbnail container
   const thumbnailContainer = document.createElement('div');
   thumbnailContainer.className = 'thumbnail-container';
+  thumbnailContainer.style.display = 'grid';
+  thumbnailContainer.style.gridTemplateColumns = 'repeat(auto-fill, minmax(80px, 1fr))';
+  thumbnailContainer.style.gap = '10px';
+  thumbnailContainer.style.padding = '10px';
 
   // Sort by timestamp, newest first
   imageQueue.sort((a, b) => b.timestamp - a.timestamp);
@@ -1597,15 +1600,31 @@ async function updateImageContent(contentElement: HTMLElement) {
     const thumbnail = document.createElement('div');
     thumbnail.className = 'thumbnail';
     thumbnail.dataset.id = image.id;
+    thumbnail.style.position = 'relative';
+    thumbnail.style.borderRadius = '4px';
+    thumbnail.style.overflow = 'hidden';
+    thumbnail.style.aspectRatio = '1/1';
+    thumbnail.style.display = 'flex';
+    thumbnail.style.alignItems = 'center';
+    thumbnail.style.justifyContent = 'center';
+    thumbnail.style.backgroundColor = 'rgba(0,0,0,0.05)';
+    thumbnail.style.cursor = 'pointer';
+    thumbnail.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+    thumbnail.style.transition = 'all 0.2s ease';
 
     // Check if this image is selected
     if (selectedImageId === image.id) {
       thumbnail.classList.add('selected');
+      thumbnail.style.boxShadow = '0 0 0 2px #4285f4, 0 1px 3px rgba(0,0,0,0.2)';
     }
 
     const img = document.createElement('img');
     img.src = image.thumbnailUrl || image.dataUrl;
     img.title = `Captured: ${new Date(image.timestamp).toLocaleString()}`;
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '100%';
+    img.style.objectFit = 'contain';
+    img.style.display = 'block';
     thumbnail.appendChild(img);
 
     // Add delete button
@@ -1613,6 +1632,22 @@ async function updateImageContent(contentElement: HTMLElement) {
     deleteBtn.className = 'delete-btn';
     deleteBtn.innerHTML = '✕';
     deleteBtn.title = 'Delete image';
+    deleteBtn.style.position = 'absolute';
+    deleteBtn.style.top = '4px';
+    deleteBtn.style.right = '4px';
+    deleteBtn.style.background = 'rgba(0,0,0,0.5)';
+    deleteBtn.style.color = 'white';
+    deleteBtn.style.border = 'none';
+    deleteBtn.style.borderRadius = '50%';
+    deleteBtn.style.width = '20px';
+    deleteBtn.style.height = '20px';
+    deleteBtn.style.fontSize = '10px';
+    deleteBtn.style.display = 'flex';
+    deleteBtn.style.alignItems = 'center';
+    deleteBtn.style.justifyContent = 'center';
+    deleteBtn.style.cursor = 'pointer';
+    deleteBtn.style.opacity = '0';
+    deleteBtn.style.transition = 'opacity 0.2s ease';
     deleteBtn.addEventListener('click', async e => {
       e.stopPropagation(); // Prevent selection of the image
       await deleteImage(image.id);
@@ -1625,22 +1660,37 @@ async function updateImageContent(contentElement: HTMLElement) {
     });
     thumbnail.appendChild(deleteBtn);
 
+    // Show delete button on hover
+    thumbnail.addEventListener('mouseenter', () => {
+      deleteBtn.style.opacity = '1';
+    });
+
+    thumbnail.addEventListener('mouseleave', () => {
+      deleteBtn.style.opacity = '0';
+    });
+
     // Click to select this image
     thumbnail.addEventListener('click', async () => {
       // Toggle selection if already selected
       if (selectedImageId === image.id) {
         selectedImageId = null;
+        thumbnail.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
       } else {
         selectedImageId = image.id;
+        thumbnail.style.boxShadow = '0 0 0 2px #4285f4, 0 1px 3px rgba(0,0,0,0.2)';
       }
       selectedPromptId = null;
       document.dispatchEvent(new CustomEvent('selection-changed'));
 
       // Update UI to show selection
       const allImages = thumbnailContainer.querySelectorAll('.thumbnail');
-      allImages.forEach(item => item.classList.remove('selected'));
+      allImages.forEach(item => {
+        item.classList.remove('selected');
+        item.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+      });
       if (selectedImageId) {
         thumbnail.classList.add('selected');
+        thumbnail.style.boxShadow = '0 0 0 2px #4285f4, 0 1px 3px rgba(0,0,0,0.2)';
       }
     });
 
