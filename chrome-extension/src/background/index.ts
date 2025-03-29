@@ -24,6 +24,23 @@ chrome.commands.onCommand.addListener(command => {
         }
       }
     });
+  } else if (command === 'toggle-image-panel') {
+    // Toggle the visibility of the image queue panel
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+      if (tabs.length > 0 && tabs[0].id) {
+        try {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'toggleImagePanel' }, response => {
+            // Check for runtime.lastError to prevent uncaught errors
+            if (chrome.runtime.lastError) {
+              console.log('Could not send message to tab:', chrome.runtime.lastError.message);
+              // Tab might not have content script loaded
+            }
+          });
+        } catch (error) {
+          console.error('Error sending message to tab:', error);
+        }
+      }
+    });
   }
 });
 

@@ -97,6 +97,13 @@ const manifest = {
       },
       description: 'Send highlighted image to AI',
     },
+    'toggle-image-panel': {
+      suggested_key: {
+        default: 'Alt+A',
+        mac: 'Alt+A',
+      },
+      description: 'Toggle image panel visibility',
+    },
   },
 } satisfies chrome.runtime.ManifestV3;
 

@@ -312,6 +312,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // Indicate sync handling
   }
 
+  // Handle toggle image panel command
+  if (message.action === 'toggleImagePanel') {
+    console.log('Received toggleImagePanel command');
+    toggleQueuePanel();
+    sendResponse({ status: 'Toggled image panel' });
+    return true;
+  }
+
   return false; // Default for other messages
 });
 
@@ -1421,6 +1429,7 @@ async function pasteSelectedItem() {
             }
           }
         }
+        // No "else" here, copyImageToClipboard shows its own error toast
       }
     } else if (selectedPromptId) {
       // Paste just the prompt
@@ -1557,217 +1566,6 @@ async function generateThumbnail(dataUrl: string): Promise<string> {
 // Generate a unique ID for each image
 function generateUniqueId(): string {
   return 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
-
-// Refined keyboard shortcut handler
-function setupKeyboardShortcut() {
-  document.addEventListener('keydown', async event => {
-    if (event.altKey && (event.key === 'z' || event.key === 'Z')) {
-      // Check for Z too
-      console.log('Keyboard shortcut Alt+Z detected!');
-      event.preventDefault();
-      event.stopPropagation(); // Prevent event bubbling
-
-      const highlightedElement = window.__highlightedElement;
-      if (!highlightedElement) {
-        showToast('No image selected. Hover over an image.', 'error');
-        return;
-      }
-
-      const imageUrl = getImageFromElement(highlightedElement);
-      if (!imageUrl) {
-        showToast('Failed to extract image source.', 'error');
-        return;
-      }
-
-      // --- Enhanced Focus Management ---
-      // Store active element to restore focus later
-      const activeElement = document.activeElement;
-
-      // Create a more robust focus helper
-      const focusHelper = document.createElement('button'); // Using button for better focus behavior
-      focusHelper.style.position = 'fixed';
-      focusHelper.style.opacity = '0';
-      focusHelper.style.pointerEvents = 'none';
-      focusHelper.style.left = '-9999px';
-      focusHelper.setAttribute('tabindex', '1'); // Ensure focusable
-      document.body.appendChild(focusHelper);
-
-      // Multiple focus attempts with different methods
-      window.focus();
-      document.documentElement.focus();
-      focusHelper.focus(); // Attempt to ensure document focus
-
-      // Small delay to ensure focus is established
-      await new Promise(resolve => setTimeout(resolve, 50));
-      // --- End Enhanced Focus Management ---
-
-      showToast('Processing image...', 'info', 1000); // Shorter duration
-
-      try {
-        const dataUrl = await urlToDataURL(imageUrl);
-        console.log('Document has focus before copy attempt:', document.hasFocus());
-        const copySuccess = await copyImageToClipboard(dataUrl);
-
-        if (copySuccess) {
-          showToast('Image copied!', 'success');
-          await addImageToQueue(dataUrl, imageUrl); // Add to queue on success
-
-          // Check if on ChatGPT and attempt paste
-          const hostname = window.location.hostname;
-          if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) {
-            console.log('Detected ChatGPT site, attempting paste...');
-            // Use a minimal delay, relying on user focus potentially being maintained
-            setTimeout(() => pasteIntoChatGPT(), 100);
-          }
-        }
-        // No "else" here, copyImageToClipboard shows its own error toast
-      } catch (error) {
-        console.error('Error processing image shortcut:', error);
-        showToast('Error processing image', 'error');
-      } finally {
-        // --- Restore Focus ---
-        if (document.body.contains(focusHelper)) {
-          document.body.removeChild(focusHelper);
-        }
-        // Try to restore original focus
-        if (activeElement instanceof HTMLElement) {
-          try {
-            // Small delay before restoring focus, might help in some cases
-            setTimeout(() => activeElement.focus({ preventScroll: true }), 50);
-          } catch (focusError) {
-            console.warn('Could not restore focus:', focusError);
-          }
-        }
-        // --- End Restore Focus ---
-      }
-    }
-  });
-}
-
-// Helper function to convert image URL to Data URL (might need background script for CORS)
-async function urlToDataURL(url: string): Promise<string> {
-  try {
-    // Try direct fetch first (works for same-origin or CORS-enabled images)
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Direct fetch failed: ${response.status}`);
-    }
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (e) {
-    console.log('Direct fetch failed, trying background fetch for:', url, e);
-    // Fallback to background script for potential CORS bypass
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'fetchImage', imageUrl: url }, response => {
-        if (chrome.runtime.lastError) {
-          return reject(new Error(chrome.runtime.lastError.message || 'Background fetch failed'));
-        }
-        if (response?.success) {
-          resolve(response.dataUrl);
-        } else {
-          reject(new Error(response?.error || 'Failed to fetch image via background'));
-        }
-      });
-    });
-  }
-}
-
-// Refined function to copy image data (Data URL) to clipboard
-async function copyImageToClipboard(imageDataUrl: string): Promise<boolean> {
-  if (!navigator.clipboard || !window.ClipboardItem) {
-    console.error('Clipboard API or ClipboardItem not supported.');
-    showToast('Clipboard API not available', 'error');
-    return false;
-  }
-
-  try {
-    // Convert data URL to blob
-    const response = await fetch(imageDataUrl);
-    const blob = await response.blob();
-
-    // Additional focus attempt right before clipboard operation
-    window.focus();
-    document.documentElement.focus();
-
-    // Use the Clipboard API
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        [blob.type]: blob,
-      }),
-    ]);
-    console.log('Image successfully copied to clipboard via content script.');
-    return true;
-  } catch (error) {
-    console.error('Content Script: Failed to write to clipboard:', error);
-
-    // Attempt fallback method if it's a focus-related error
-    if (error instanceof DOMException && error.name === 'NotAllowedError') {
-      try {
-        // Create a temporary image element
-        const img = new Image();
-        img.src = imageDataUrl;
-        await new Promise<void>(resolve => {
-          img.onload = () => resolve();
-          img.onerror = () => {
-            console.error('Failed to load image for fallback method');
-            resolve();
-          };
-        });
-
-        // Create a canvas and draw the image on it
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width || 200;
-        canvas.height = img.height || 200;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          console.error('Unable to get canvas context');
-          return false;
-        }
-
-        ctx.drawImage(img, 0, 0);
-
-        // Try canvas-based copy as fallback
-        const success = await new Promise<boolean>(resolve => {
-          canvas.toBlob(async blob => {
-            if (!blob) {
-              resolve(false);
-              return;
-            }
-
-            try {
-              // One more focus attempt
-              window.focus();
-              document.documentElement.focus();
-
-              await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-              resolve(true);
-            } catch (e) {
-              console.error('Fallback clipboard method failed:', e);
-              resolve(false);
-            }
-          });
-        });
-
-        if (success) {
-          console.log('Image copied using fallback method');
-          return true;
-        }
-      } catch (fallbackError) {
-        console.error('Error in fallback clipboard method:', fallbackError);
-      }
-
-      showToast('Copy failed: Page needs focus. Click on page first.', 'error', 3000);
-    } else {
-      showToast('Failed to copy image.', 'error');
-    }
-    return false;
-  }
 }
 
 // Update image content
@@ -2253,6 +2051,217 @@ function refreshPanelContent() {
   setTimeout(() => {
     showToast('Panel content refreshed!', 'success');
   }, 300);
+}
+
+// Refined keyboard shortcut handler
+function setupKeyboardShortcut() {
+  document.addEventListener('keydown', async event => {
+    if (event.altKey && (event.key === 'z' || event.key === 'Z')) {
+      // Check for Z too
+      console.log('Keyboard shortcut Alt+Z detected!');
+      event.preventDefault();
+      event.stopPropagation(); // Prevent event bubbling
+
+      const highlightedElement = window.__highlightedElement;
+      if (!highlightedElement) {
+        showToast('No image selected. Hover over an image.', 'error');
+        return;
+      }
+
+      const imageUrl = getImageFromElement(highlightedElement);
+      if (!imageUrl) {
+        showToast('Failed to extract image source.', 'error');
+        return;
+      }
+
+      // --- Enhanced Focus Management ---
+      // Store active element to restore focus later
+      const activeElement = document.activeElement;
+
+      // Create a more robust focus helper
+      const focusHelper = document.createElement('button'); // Using button for better focus behavior
+      focusHelper.style.position = 'fixed';
+      focusHelper.style.opacity = '0';
+      focusHelper.style.pointerEvents = 'none';
+      focusHelper.style.left = '-9999px';
+      focusHelper.setAttribute('tabindex', '1'); // Ensure focusable
+      document.body.appendChild(focusHelper);
+
+      // Multiple focus attempts with different methods
+      window.focus();
+      document.documentElement.focus();
+      focusHelper.focus(); // Attempt to ensure document focus
+
+      // Small delay to ensure focus is established
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // --- End Enhanced Focus Management ---
+
+      showToast('Processing image...', 'info', 1000); // Shorter duration
+
+      try {
+        const dataUrl = await urlToDataURL(imageUrl);
+        console.log('Document has focus before copy attempt:', document.hasFocus());
+        const copySuccess = await copyImageToClipboard(dataUrl);
+
+        if (copySuccess) {
+          showToast('Image copied!', 'success');
+          await addImageToQueue(dataUrl, imageUrl); // Add to queue on success
+
+          // Check if on ChatGPT and attempt paste
+          const hostname = window.location.hostname;
+          if (hostname.includes('chatgpt.com') || hostname.includes('chat.openai.com')) {
+            console.log('Detected ChatGPT site, attempting paste...');
+            // Use a minimal delay, relying on user focus potentially being maintained
+            setTimeout(() => pasteIntoChatGPT(), 100);
+          }
+        }
+        // No "else" here, copyImageToClipboard shows its own error toast
+      } catch (error) {
+        console.error('Error processing image shortcut:', error);
+        showToast('Error processing image', 'error');
+      } finally {
+        // --- Restore Focus ---
+        if (document.body.contains(focusHelper)) {
+          document.body.removeChild(focusHelper);
+        }
+        // Try to restore original focus
+        if (activeElement instanceof HTMLElement) {
+          try {
+            // Small delay before restoring focus, might help in some cases
+            setTimeout(() => activeElement.focus({ preventScroll: true }), 50);
+          } catch (focusError) {
+            console.warn('Could not restore focus:', focusError);
+          }
+        }
+        // --- End Restore Focus ---
+      }
+    }
+  });
+}
+
+// Helper function to convert image URL to Data URL (might need background script for CORS)
+async function urlToDataURL(url: string): Promise<string> {
+  try {
+    // Try direct fetch first (works for same-origin or CORS-enabled images)
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Direct fetch failed: ${response.status}`);
+    }
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.log('Direct fetch failed, trying background fetch for:', url, e);
+    // Fallback to background script for potential CORS bypass
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'fetchImage', imageUrl: url }, response => {
+        if (chrome.runtime.lastError) {
+          return reject(new Error(chrome.runtime.lastError.message || 'Background fetch failed'));
+        }
+        if (response?.success) {
+          resolve(response.dataUrl);
+        } else {
+          reject(new Error(response?.error || 'Failed to fetch image via background'));
+        }
+      });
+    });
+  }
+}
+
+// Refined function to copy image data (Data URL) to clipboard
+async function copyImageToClipboard(imageDataUrl: string): Promise<boolean> {
+  if (!navigator.clipboard || !window.ClipboardItem) {
+    console.error('Clipboard API or ClipboardItem not supported.');
+    showToast('Clipboard API not available', 'error');
+    return false;
+  }
+
+  try {
+    // Convert data URL to blob
+    const response = await fetch(imageDataUrl);
+    const blob = await response.blob();
+
+    // Additional focus attempt right before clipboard operation
+    window.focus();
+    document.documentElement.focus();
+
+    // Use the Clipboard API
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        [blob.type]: blob,
+      }),
+    ]);
+    console.log('Image successfully copied to clipboard via content script.');
+    return true;
+  } catch (error) {
+    console.error('Content Script: Failed to write to clipboard:', error);
+
+    // Attempt fallback method if it's a focus-related error
+    if (error instanceof DOMException && error.name === 'NotAllowedError') {
+      try {
+        // Create a temporary image element
+        const img = new Image();
+        img.src = imageDataUrl;
+        await new Promise<void>(resolve => {
+          img.onload = () => resolve();
+          img.onerror = () => {
+            console.error('Failed to load image for fallback method');
+            resolve();
+          };
+        });
+
+        // Create a canvas and draw the image on it
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width || 200;
+        canvas.height = img.height || 200;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          console.error('Unable to get canvas context');
+          return false;
+        }
+
+        ctx.drawImage(img, 0, 0);
+
+        // Try canvas-based copy as fallback
+        const success = await new Promise<boolean>(resolve => {
+          canvas.toBlob(async blob => {
+            if (!blob) {
+              resolve(false);
+              return;
+            }
+
+            try {
+              // One more focus attempt
+              window.focus();
+              document.documentElement.focus();
+
+              await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+              resolve(true);
+            } catch (e) {
+              console.error('Fallback clipboard method failed:', e);
+              resolve(false);
+            }
+          });
+        });
+
+        if (success) {
+          console.log('Image copied using fallback method');
+          return true;
+        }
+      } catch (fallbackError) {
+        console.error('Error in fallback clipboard method:', fallbackError);
+      }
+
+      showToast('Copy failed: Page needs focus. Click on page first.', 'error', 3000);
+    } else {
+      showToast('Failed to copy image.', 'error');
+    }
+    return false;
+  }
 }
 
 // Initialize function
