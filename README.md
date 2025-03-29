@@ -68,9 +68,36 @@ To install the extension manually (unpacked):
 
 ### Keyboard Shortcuts
 
+#### Windows
 - **Alt+Z**: Copy the image under your cursor to clipboard
-- **Alt+A**: Toggle the image gallery panel showing your recent captures
-- **Alt+Shift+Y**: Open the extension popup
+- **Alt+A**: Toggle the image gallery panel
+- **Ctrl+Shift+Y**: Open the extension popup
+
+#### Linux
+- **Alt+Z**: Copy the image under your cursor to clipboard
+- **Alt+A**: Toggle the image gallery panel
+- **Ctrl+Shift+Y**: Open the extension popup
+
+#### Mac
+- **Option(⌥)+Z**: Copy the image under your cursor to clipboard
+- **Option(⌥)+A**: Toggle the image gallery panel
+- **Command(⌘)+Shift+Y**: Open the extension popup
+
+### Using the Image Gallery
+
+1. **Open the gallery**: Use the appropriate keyboard shortcut for your operating system (Alt+A on Windows/Linux, Option+A on Mac)
+2. **View recent captures**: The gallery shows your 5 most recently captured images as thumbnails
+3. **Copy an image again**: Click on any thumbnail in the gallery to copy that image to your clipboard again
+4. **Close the gallery**: Press the keyboard shortcut again, or click outside the gallery
+
+### Using with ChatGPT
+
+PinGenerate AI is specially designed to work seamlessly with ChatGPT:
+
+1. Capture an image with the appropriate keyboard shortcut
+2. Navigate to ChatGPT in your browser
+3. Paste the image (Ctrl+V on Windows/Linux, Command+V on Mac)
+4. The image will be attached to your message and ready to send
 
 ## Development
 
