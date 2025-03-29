@@ -41,21 +41,21 @@ const Popup = () => {
   return (
     <div className={`App ${isLight ? 'bg-slate-50' : 'bg-gray-800'}`}>
       <header className={`App-header ${isLight ? 'text-gray-900' : 'text-gray-100'}`}>
-        <button onClick={goGithubSite}>
-          <img src={chrome.runtime.getURL(logo)} className="App-logo" alt="logo" />
-        </button>
-        <p>
-          Edit <code>pages/popup/src/Popup.tsx</code>
-        </p>
-        <button
-          className={
-            'font-bold mt-4 py-1 px-4 rounded shadow hover:scale-105 ' +
-            (isLight ? 'bg-blue-200 text-black' : 'bg-gray-700 text-white')
-          }
-          onClick={injectContentScript}>
-          Click to inject Content Script
-        </button>
-        <ToggleButton>{t('toggleTheme')}</ToggleButton>
+        <svg
+          width="120"
+          height="120"
+          viewBox="0 0 200 200"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          stroke={isLight ? 'black' : 'black'}
+          strokeWidth="12"
+          className="App-logo">
+          <circle cx="100" cy="100" r="80" />
+          <line x1="60" y1="30" x2="60" y2="170" />
+          <line x1="60" y1="100" x2="140" y2="30" />
+        </svg>
+        <h1 className="text-2xl font-bold">PinGenerate AI</h1>
+        <p>Probably for ghiblis</p>
       </header>
     </div>
   );
